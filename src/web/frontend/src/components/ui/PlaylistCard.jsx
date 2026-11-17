@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Toggle } from './Toggle'
 import { Button } from './common'
 import { fetchPlaylistTracks } from '../../lib/listenbrainz'
-import { prefetchPlaylists } from '../../lib/api'
+import { prefetchPlaylists, hasCover, uploadCover, deleteCover } from '../../lib/api'
 
 // ── TrackRow ──────────────────────────────────────────────────────────────────
 
@@ -459,8 +459,33 @@ export function PlaylistCard({
   const [cardHovered, setCardHovered] = useState(false)
   const [replaceInfoOpen, setReplaceInfoOpen] = useState(false)
   const menuBtnRef = useRef(null)
+  const coverInputRef = useRef(null)
+  const [coverExists, setCoverExists] = useState(false)
+  const [coverMsg, setCoverMsg] = useState('')
+  useEffect(() => {
+    if (!menuOpen) return // only ask when the menu is opened, not for every card on page load
+    let alive = true
+    hasCover(trackFetchId).then(ok => { if (alive) setCoverExists(ok) }).catch(() => {})
+    return () => { alive = false }
+  }, [trackFetchId, menuOpen])
+  useEffect(() => {
+    if (!coverMsg) return
+    const t = setTimeout(() => setCoverMsg(''), 3500)
+    return () => clearTimeout(t)
+  }, [coverMsg])
+  const onCoverPicked = async e => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try { await uploadCover(trackFetchId, file); setCoverExists(true); setCoverMsg('Cover saved') }
+    catch (err) { setCoverMsg(err.message) }
+  }
+  const onCoverRemove = async () => {
+    try { await deleteCover(trackFetchId); setCoverExists(false); setCoverMsg('Cover removed') }
+    catch (err) { setCoverMsg(err.message) }
+  }
   const canEdit = !fixedSchedule && !!onToggleEdit
-  const hasMenu = canEdit || !!onDelete || !!sourceUrl || !!onReplaceToggle
+  const hasMenu = true
 
   useEffect(() => {
     if (!menuOpen) { setConfirmDelete(false); setDeleteTracksChecked(false); return }
@@ -479,6 +504,12 @@ export function PlaylistCard({
       transition={{ duration: 0.55, delay: index * 0.09, ease: [0.16, 1, 0.3, 1] }}
       style={{ position: 'relative' }}
     >
+      <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/gif" style={{ display: 'none' }} onChange={onCoverPicked} />
+      {coverMsg && (
+        <div style={{ position: 'absolute', left: 10, top: 10, zIndex: 5, fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.75)', borderRadius: 6, padding: '3px 8px' }}>
+          {coverMsg}
+        </div>
+      )}
       <div
         onClick={e => { if (menuOpen) return; if (s.enabled && onTracklistToggle) onTracklistToggle() }}
         onMouseEnter={() => setCardHovered(true)}
@@ -685,6 +716,34 @@ export function PlaylistCard({
             >
               Edit Schedule
             </button>
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); setMenuOpen(false); coverInputRef.current?.click() }}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              background: 'none', border: 'none',
+              padding: '8px 14px', fontSize: 13, color: '#c0c0c0',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+          >
+            {coverExists ? 'Change cover…' : 'Set cover…'}
+          </button>
+          {coverExists && (
+          <button
+            onClick={e => { e.stopPropagation(); setMenuOpen(false); onCoverRemove() }}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              background: 'none', border: 'none',
+              padding: '8px 14px', fontSize: 13, color: '#c0c0c0',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+          >
+            Remove cover
+          </button>
           )}
           {onReplaceToggle && (
             <div style={{ display: 'flex', flexDirection: 'column' }}>

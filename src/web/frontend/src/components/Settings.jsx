@@ -15,8 +15,11 @@ import {
   fetchConfig, fetchConfigRaw, saveConfig, resetConfig,
   saveSchedule, startRun, stopRun, fetchRunStatus, fetchLogs,
   fetchCustomPlaylists, deleteCustomPlaylist, savePathTemplate, saveEnrichMetadata,
-  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval,
+  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys,
+  cookiesPresent, uploadCookies, deleteCookies,
+  renameProfile, deleteProfile, restartNeeded, restartNow,
   fetchPathTemplatePresets, addPathTemplatePreset, deletePathTemplatePreset,
+  getProfile, setProfile, withProfile, fetchProfiles, createProfile,
 } from '../lib/api'
 import { parseSlogLine, cronToFields, highlightEnv } from '../lib/utils'
 import { fetchPlaylistTracks, clearPlaylistCache } from '../lib/listenbrainz'
@@ -45,7 +48,7 @@ function useSSE({ onLine, onDone }) {
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const res = await fetch('/api/ui/run/events', { credentials: 'include', signal: controller.signal })
+      const res = await fetch(withProfile('/api/ui/run/events'), { credentials: 'include', signal: controller.signal })
       if (!res.ok) { onDone(null); return }
       const reader = res.body.getReader()
       const dec = new TextDecoder()
@@ -201,6 +204,147 @@ function CustomPlaylistsSection({
   )
 }
 
+const WEEK = [
+  { d: 1, label: 'Mon' }, { d: 2, label: 'Tue' }, { d: 3, label: 'Wed' }, { d: 4, label: 'Thu' },
+  { d: 5, label: 'Fri' }, { d: 6, label: 'Sat' }, { d: 0, label: 'Sun' },
+]
+const pad2 = n => String(n).padStart(2, '0')
+
+function ScheduleOverview({ schedules, customPlaylists }) {
+  const items = [
+    ...PLAYLISTS.map(p => ({ id: p.value, name: p.name })),
+    ...customPlaylists.map(cp => ({ id: cp.id, name: cp.name })),
+  ].map(it => ({ ...it, s: schedules[it.id] })).filter(it => it.s?.enabled)
+
+  const scheduled = items.filter(it => it.s.day !== -2)
+  const manualOnly = items.filter(it => it.s.day === -2)
+  const monthly = scheduled.filter(it => it.s.day === 100)
+  const forDay = d => scheduled
+    .filter(it => it.s.day === d || it.s.day === -1)
+    .sort((a, b) => (a.s.hour * 60 + a.s.minute) - (b.s.hour * 60 + b.s.minute))
+
+  const Chip = ({ it }) => (
+    <div className="rounded-[6px] bg-well border border-ui-border px-2 py-1 mb-1.5">
+      <div className="text-[11px] text-white leading-tight break-words" title={it.name}>{it.name}</div>
+      <div className="text-[11px] text-accent tabular-nums">{pad2(it.s.hour)}:{pad2(it.s.minute)}</div>
+    </div>
+  )
+
+  const steps = [
+    ['1', 'On schedule', 'Explo starts by itself at the set time.'],
+    ['2', 'Fetch & download', 'It gets your recommendations from ListenBrainz and downloads songs you don\'t have yet.'],
+    ['3', 'Update playlist', 'The playlist in your music app is rebuilt. Old songs stay.'],
+  ]
+
+  return (
+    <div className="mb-5">
+      <div className="flex gap-2.5 flex-wrap mb-4">
+        {steps.map(([n, title, text]) => (
+          <div key={n} className="flex-1 min-w-[170px] flex gap-2.5 items-start">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-accent text-black text-[11px] font-bold flex items-center justify-center mt-0.5">{n}</span>
+            <div>
+              <div className="text-[12px] text-white">{title}</div>
+              <div className="text-[11px] text-muted">{text}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-[10px] border border-ui-border p-3">
+        <div className="grid grid-cols-7 gap-2">
+          {WEEK.map(({ d, label }) => (
+            <div key={d} className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">{label}</div>
+              {forDay(d).map(it => <Chip key={it.id} it={it} />)}
+              {forDay(d).length === 0 && <div className="text-[11px] text-[#444]">—</div>}
+            </div>
+          ))}
+        </div>
+        {monthly.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-ui-border flex gap-2 flex-wrap items-center">
+            <span className="text-[11px] uppercase tracking-wide text-muted">1st of month</span>
+            {monthly.map(it => <span key={it.id} className="text-[11px] text-white">{it.name} <span className="text-accent">{pad2(it.s.hour)}:{pad2(it.s.minute)}</span></span>)}
+          </div>
+        )}
+        {scheduled.length === 0 && (
+          <div className="text-[12px] text-muted mt-2">Nothing scheduled yet. Open a playlist’s ⋮ menu → Edit Schedule, or run one manually below.</div>
+        )}
+        {manualOnly.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-ui-border text-[11px] text-muted">
+            Manual only: {manualOnly.map(it => it.name).join(', ')}
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-muted mt-2">
+        Times use the container’s timezone (<code>TZ</code>). Schedule changes need a restart, you will see a button for it.
+      </p>
+    </div>
+  )
+}
+
+function PlaylistHandling() {
+  const [items, setItems] = useState([])   // [{id, name, replace}]
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    Promise.all([fetchConfig(), fetchCustomPlaylists().catch(() => [])]).then(([{ values }, customs]) => {
+      const list = []
+      for (const p of PLAYLISTS) {
+        if (!values[p.scheduleKey] && !values[p.flagsKey]) continue
+        list.push({ id: p.value, name: p.name, replace: !(values[p.flagsKey] || '').includes('--replace-playlist=false') })
+      }
+      for (const cp of customs) {
+        if (!cp.flags && !cp.schedule) continue
+        list.push({ id: cp.id, name: cp.name, replace: !(cp.flags || '').includes('--replace-playlist=false') })
+      }
+      setItems(list)
+      setLoaded(true)
+    })
+  }, [])
+
+  const mode = items.length === 0 ? null : items.every(i => i.replace) ? 'replace' : items.every(i => !i.replace) ? 'keep' : 'mixed'
+
+  const setAll = (next) => {
+    setItems(prev => prev.map(i => ({ ...i, replace: next })))
+    for (const i of items) {
+      saveReplacePlaylist(i.id, i.name, next).catch(() =>
+        setItems(prev => prev.map(x => x.id === i.id ? { ...x, replace: !next } : x)))
+    }
+  }
+
+  const Option = ({ value, title, text }) => (
+    <button
+      type="button"
+      onClick={() => setAll(value === 'replace')}
+      className={`text-left flex-1 min-w-[220px] rounded-[8px] border px-3.5 py-3 cursor-pointer bg-transparent transition-colors ${mode === value ? 'border-accent' : 'border-ui-border hover:border-[#444]'}`}
+    >
+      <div className="flex items-center gap-2 text-[13px] text-white">
+        <span className={`inline-block w-3 h-3 rounded-full border ${mode === value ? 'bg-accent border-accent' : 'border-[#555]'}`} />
+        {title}
+      </div>
+      <div className="text-[11px] text-muted mt-1.5">{text}</div>
+    </button>
+  )
+
+  return (
+    <div className="mt-6">
+      <SectionLabel>Playlists</SectionLabel>
+      <div className="text-[13px] text-white mb-1">What happens to a playlist when it is regenerated?</div>
+      <p className="text-[12px] text-muted mb-3">
+        Songs you already downloaded always stay in your library, unless you turn on “Delete old song files” further down.
+      </p>
+      <div className="flex gap-3 flex-wrap">
+        <Option value="replace" title="Replace the old playlist (recommended)"
+          text="Always exactly one playlist per name. The previous version is removed, its songs stay in your library." />
+        <Option value="keep" title="Keep every version"
+          text="Each run adds a new dated playlist next to the old ones, e.g. Weekly-Jams-2026-11-16. Applies to custom playlists too." />
+      </div>
+      {loaded && items.length === 0 && <p className="text-[11px] text-muted mt-2">No playlist is scheduled yet — set one up on the Home tab first.</p>}
+      {mode === 'mixed' && <p className="text-[11px] text-muted mt-2">Currently set differently per playlist. Pick an option to apply it to all of them.</p>}
+    </div>
+  )
+}
+
 function HomeSection() {
   const [schedules, setSchedules] = useState(null)
   const [replacePlaylists, setReplacePlaylists] = useState({})
@@ -232,6 +376,9 @@ function HomeSection() {
       const rp = {}
       for (const p of PLAYLISTS) {
         rp[p.value] = !(values[p.flagsKey] || '').includes('--replace-playlist=false')
+      }
+      for (const cp of customList) {
+        rp[cp.id] = !(cp.flags || '').includes('--replace-playlist=false')
       }
       setReplacePlaylists(rp)
 
@@ -364,6 +511,7 @@ function HomeSection() {
       {/* Scheduled Playlists */}
       <div className="mt-6">
         <div className="text-[16px] font-bold tracking-tight text-white mb-3.5">Scheduled Playlists</div>
+        <ScheduleOverview schedules={schedules} customPlaylists={customPlaylists} />
         <div className="grid grid-cols-1 min-[420px]:grid-cols-2 min-[720px]:grid-cols-4 gap-3 mt-3">
           {PLAYLISTS.map((p, i) => (
             <PlaylistCard
@@ -385,7 +533,7 @@ function HomeSection() {
             playlist={openTracklist}
             refreshTick={refreshTick}
             onRun={async () => {
-              await startRun(openTracklist, 'normal', replacePlaylists[playlist] ?? true)
+              await startRun(openTracklist, 'normal', replacePlaylists[openTracklist] ?? true)
               setRunning(true)
               setStatus('running…')
               setLogEntries([])
@@ -393,7 +541,6 @@ function HomeSection() {
             }}
           />
         </TracklistSlide>
-        <p className="text-[12px] text-muted mt-3">Schedule changes take effect after restarting the container.</p>
       </div>
 
       {/* Custom Playlists */}
@@ -426,7 +573,7 @@ function HomeSection() {
           setShowImportModal(false)
         }}
         onSync={async (id) => {
-          await startRun(id, 'normal')
+          await startRun(id, 'normal', replacePlaylists[id] ?? true)
           setRunning(true)
           setStatus('running…')
           setLogEntries([])
@@ -668,8 +815,8 @@ function DownloadPathSection() {
       {/* Clean old downloads toggle */}
       <div className="flex items-start justify-between mt-3 mb-1 gap-4">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[13px] text-white">Clean old downloads</span>
-          <span className="text-[11px] text-muted">Remove previously downloaded tracks before each run. Only affects Explo's download folder, not your main library.</span>
+          <span className="text-[13px] text-white">Delete old song files before each run</span>
+          <span className="text-[11px] text-muted">Off (recommended): songs from earlier runs stay in your library. On: files in Explo's download folder are deleted before each run, so they disappear from your music app too.</span>
         </div>
         <button
           role="switch"
@@ -846,6 +993,304 @@ function DownloadPathSection() {
 // Raw .env file viewer/editor, plus wizard re-run and full reset actions.
 // Fetches its own raw config text from the API.
 
+const MUSIC_SYSTEMS = [
+  { value: 'subsonic', label: 'Navidrome / Subsonic', fields: ['SYSTEM_URL', 'SYSTEM_USERNAME', 'SYSTEM_PASSWORD'], admin: ['ADMIN_SYSTEM_USERNAME', 'ADMIN_SYSTEM_PASSWORD'], hint: 'Use the login of the Navidrome user that should get the playlists.' },
+  { value: 'jellyfin', label: 'Jellyfin', fields: ['SYSTEM_URL', 'SYSTEM_USERNAME', 'API_KEY', 'LIBRARY_NAME'], admin: ['ADMIN_API_KEY'], hint: 'Create an API key in Jellyfin → Dashboard → API Keys.' },
+  { value: 'emby', label: 'Emby', fields: ['SYSTEM_URL', 'SYSTEM_USERNAME', 'API_KEY', 'LIBRARY_NAME'], hint: 'Create an API key in Emby → Advanced → API Keys.' },
+  { value: 'plex', label: 'Plex', fields: ['SYSTEM_URL', 'SYSTEM_USERNAME', 'SYSTEM_PASSWORD', 'API_KEY', 'LIBRARY_NAME'], admin: ['ADMIN_SYSTEM_USERNAME', 'ADMIN_SYSTEM_PASSWORD', 'ADMIN_API_KEY'], hint: 'Password or token (API key), plus the name of your music library.' },
+  { value: 'mpd', label: 'MPD', fields: ['SYSTEM_URL'], hint: 'Address of your MPD server.' },
+]
+
+const FIELD_META = {
+  ADMIN_SYSTEM_USERNAME: { label: 'Admin username' },
+  ADMIN_SYSTEM_PASSWORD: { label: 'Admin password', secret: true },
+  ADMIN_API_KEY: { label: 'Admin API key', secret: true },
+  SYSTEM_URL: { label: 'Server address', placeholder: 'http://192.168.1.10:4533' },
+  SYSTEM_USERNAME: { label: 'Username' },
+  SYSTEM_PASSWORD: { label: 'Password', secret: true },
+  API_KEY: { label: 'API key', secret: true },
+  LIBRARY_NAME: { label: 'Music library name', placeholder: 'Music' },
+  LISTENBRAINZ_USER: { label: 'ListenBrainz username' },
+  LISTENBRAINZ_USER_TOKEN: { label: 'ListenBrainz user token', secret: true },
+  YOUTUBE_API_KEY: { label: 'YouTube API key (optional)', secret: true },
+  SLSKD_URL: { label: 'slskd address', placeholder: 'http://192.168.1.10:5030' },
+  SLSKD_API_KEY: { label: 'slskd API key', secret: true },
+  LIDARR_URL: { label: 'Lidarr address', placeholder: 'http://192.168.1.10:8686' },
+  LIDARR_API_KEY: { label: 'Lidarr API key', secret: true },
+}
+
+const DOWNLOAD_SOURCES = [
+  { value: 'youtube', label: 'YouTube', text: 'Works out of the box, no setup.', fields: ['YOUTUBE_API_KEY'] },
+  { value: 'slskd', label: 'Soulseek (slskd)', text: 'Better quality, needs a running slskd.', fields: ['SLSKD_URL', 'SLSKD_API_KEY'] },
+  { value: 'lidarr', label: 'Lidarr', text: 'Downloads whole albums through Lidarr.', fields: ['LIDARR_URL', 'LIDARR_API_KEY'] },
+]
+
+function YoutubeCookies() {
+  const [present, setPresent] = useState(false)
+  const [msg, setMsg] = useState('')
+  const inputRef = useRef(null)
+  useEffect(() => { cookiesPresent().then(setPresent).catch(() => {}) }, [])
+
+  const onPick = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try { await uploadCookies(file); setPresent(true); setMsg('Cookies saved ✓') } catch (err) { setMsg(err.message) }
+  }
+  const onRemove = async () => {
+    try { await deleteCookies(); setPresent(false); setMsg('Cookies removed') } catch (err) { setMsg(err.message) }
+  }
+
+  return (
+    <div className="mt-3 rounded-[8px] border border-ui-border p-3.5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-[13px] text-white">YouTube cookies (optional) {present && <span className="text-accent text-[12px]">· active</span>}</div>
+        <div className="flex items-center gap-2">
+          <input ref={inputRef} type="file" accept=".txt,text/plain" className="hidden" onChange={onPick} />
+          <Button onClick={() => inputRef.current?.click()}>{present ? 'Replace cookies.txt…' : 'Upload cookies.txt…'}</Button>
+          {present && <button onClick={onRemove} className="bg-transparent border-none text-[12px] text-muted hover:text-white cursor-pointer">Remove</button>}
+        </div>
+      </div>
+      <p className="text-[11px] text-muted mt-2">
+        Helps when YouTube blocks downloads (“Sign in to confirm you’re not a bot”) and for age-restricted songs.
+        With a YouTube Premium account it can also give you higher audio quality.
+      </p>
+      <p className="text-[11px] text-muted mt-1">
+        How: log in to YouTube in your browser, then export the cookies in <b>Netscape format</b> (e.g. with the browser extension
+        “Get cookies.txt LOCALLY”) and upload the file. Tip: use a separate Google account, the cookies give access to it.
+      </p>
+      {msg && <p className="text-[12px] text-muted mt-1.5">{msg}</p>}
+    </div>
+  )
+}
+
+function SettingsForm() {
+  const [vals, setVals] = useState(null)
+  const [status, setStatus] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const [showSecret, setShowSecret] = useState({})
+  const [isAdmin, setIsAdmin] = useState(null) // null = not loaded yet; true/false = answer to "is this user a server admin?"
+
+  useEffect(() => {
+    fetchConfig().then(({ values }) => {
+      setVals(values)
+      setIsAdmin(!(values.ADMIN_SYSTEM_USERNAME || values.ADMIN_SYSTEM_PASSWORD || values.ADMIN_API_KEY))
+    }).catch(() => setVals({}))
+  }, [])
+  if (!vals) return null
+
+  const set = (k, v) => { setVals(prev => ({ ...prev, [k]: v })); setDirty(true); setStatus('') }
+  const system = MUSIC_SYSTEMS.find(m => m.value === vals.EXPLO_SYSTEM)
+  const services = (vals.DOWNLOAD_SERVICES || 'youtube').split(',').map(x => x.trim()).filter(Boolean)
+  const toggleService = (v) => {
+    const next = services.includes(v) ? services.filter(x => x !== v) : [...services, v]
+    set('DOWNLOAD_SERVICES', (next.length ? next : ['youtube']).join(','))
+  }
+
+  const adminMissing = (() => {
+    if (!system?.admin || isAdmin !== false) return []
+    // Plex accepts either user+password or an API key; all other systems need every admin field
+    if (system.value === 'plex') {
+      return (vals.ADMIN_API_KEY || (vals.ADMIN_SYSTEM_USERNAME && vals.ADMIN_SYSTEM_PASSWORD)) ? [] : ['ADMIN_SYSTEM_USERNAME', 'ADMIN_SYSTEM_PASSWORD']
+    }
+    return system.admin.filter(k => !vals[k])
+  })()
+  const canSave = dirty && adminMissing.length === 0
+
+  const save = async () => {
+    const keys = new Set(['EXPLO_SYSTEM', 'DOWNLOAD_SERVICES', 'TRACK_EXTENSION', 'EXTENSIONS', 'MIN_BITRATE', 'PUBLIC_PLAYLIST', 'LISTENBRAINZ_USER', 'LISTENBRAINZ_USER_TOKEN',
+      ...MUSIC_SYSTEMS.flatMap(m => [...m.fields, ...(m.admin || [])]), ...DOWNLOAD_SOURCES.flatMap(d => d.fields)])
+    const out = {}
+    for (const k of keys) out[k] = vals[k] ?? ''
+    if (system?.admin && isAdmin) for (const k of system.admin) out[k] = '' // admin user: no extra admin account needed
+    try {
+      await saveConfigKeys(out)
+      setDirty(false); setStatus('Saved ✓')
+      setTimeout(() => setStatus(''), 2500)
+    } catch (e) { setStatus(e.message) }
+  }
+
+  const inputCls = 'bg-well border border-ui-border text-white rounded-[6px] px-2.5 py-1.5 text-[13px] outline-none focus:border-accent w-full'
+  // plain render function (NOT a component): a component defined here would remount on every keystroke and steal focus
+  const field = (k, required = false) => {
+    const m = FIELD_META[k] || { label: k }
+    const missing = required && adminMissing.includes(k)
+    return (
+      <label className="flex flex-col gap-1 min-w-[220px] flex-1">
+        <span className="text-[12px] text-muted">{m.label}{required && <span className="text-danger"> *</span>}</span>
+        <div className="flex gap-1.5">
+          <input
+            type={m.secret && !showSecret[k] ? 'password' : 'text'}
+            value={vals[k] ?? ''}
+            placeholder={m.placeholder}
+            onChange={e => set(k, e.target.value)}
+            autoComplete="off" spellCheck={false}
+            className={inputCls + (missing ? ' !border-danger' : '')}
+          />
+          {m.secret && (
+            <button type="button" onClick={() => setShowSecret(p => ({ ...p, [k]: !p[k] }))}
+              className="bg-transparent border border-ui-border text-muted rounded-[6px] px-2 text-[11px] cursor-pointer hover:text-white">
+              {showSecret[k] ? 'Hide' : 'Show'}
+            </button>
+          )}
+        </div>
+      </label>
+    )
+  }
+
+  return (
+    <div>
+      <div className="mt-6">
+        <SectionLabel>Music server</SectionLabel>
+        <p className="text-[12px] text-muted mb-3">Where the generated playlists should appear.</p>
+        <div className="flex gap-2 flex-wrap mb-3">
+          {MUSIC_SYSTEMS.map(m => (
+            <button key={m.value} type="button" onClick={() => set('EXPLO_SYSTEM', m.value)}
+              className={`rounded-full px-3.5 py-1.5 text-[13px] border cursor-pointer bg-transparent transition-colors ${vals.EXPLO_SYSTEM === m.value ? 'border-accent text-white' : 'border-ui-border text-muted hover:text-white'}`}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {system ? (
+          <>
+            <div className="flex gap-3 flex-wrap">{system.fields.map(k => field(k))}</div>
+            <p className="text-[11px] text-muted mt-2">{system.hint}</p>
+            {system.admin && (
+              <div className="mt-4 rounded-[8px] border border-ui-border p-3.5">
+                <div className="text-[13px] text-white mb-1">Is this user an admin on the server?</div>
+                <p className="text-[11px] text-muted mb-2.5">
+                  Explo has to start a library scan after downloading, and only admins may do that.
+                </p>
+                <div className="flex gap-2">
+                  {[[true, 'Yes'], [false, 'No']].map(([v, label]) => (
+                    <button key={label} type="button"
+                      onClick={() => { setIsAdmin(v); setDirty(true); setStatus('') }}
+                      className={`rounded-full px-4 py-1 text-[13px] border cursor-pointer bg-transparent transition-colors ${isAdmin === v ? 'border-accent text-white' : 'border-ui-border text-muted hover:text-white'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {isAdmin === false && (
+                  <div className="mt-3">
+                    <p className="text-[11px] text-muted mb-2">
+                      Enter an admin account of your server. The playlists are still created for the user above; the admin is only used for the scan.
+                    </p>
+                    <div className="flex gap-3 flex-wrap">{system.admin.map(k => field(k, true))}</div>
+                    {system.value === 'plex' && <p className="text-[11px] text-muted mt-1.5">Plex: admin username + password, or an admin API key.</p>}
+                  </div>
+                )}
+              </div>
+            )}
+            {(system.value === 'subsonic' || system.value === 'jellyfin') && (
+              <label className="flex items-center gap-2 mt-3 text-[13px] text-white cursor-pointer">
+                <input type="checkbox" checked={vals.PUBLIC_PLAYLIST === 'true'} onChange={e => set('PUBLIC_PLAYLIST', e.target.checked ? 'true' : '')} />
+                Make playlists public
+              </label>
+            )}
+          </>
+        ) : <p className="text-[12px] text-muted">Pick your music server above.</p>}
+      </div>
+
+      <div className="mt-6">
+        <SectionLabel>ListenBrainz</SectionLabel>
+        <p className="text-[12px] text-muted mb-3">Your listening history is where the recommendations come from.</p>
+        <div className="flex gap-3 flex-wrap">{field("LISTENBRAINZ_USER")}{field("LISTENBRAINZ_USER_TOKEN")}</div>
+        <p className="text-[11px] text-muted mt-2">The token is on your ListenBrainz settings page.</p>
+      </div>
+
+      <div className="mt-6">
+        <SectionLabel>Where songs come from</SectionLabel>
+        <p className="text-[12px] text-muted mb-3">Explo tries the checked sources in this order until it finds the song.</p>
+        <div className="flex flex-col gap-3">
+          {DOWNLOAD_SOURCES.map(d => (
+            <div key={d.value}>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={services.includes(d.value)} onChange={() => toggleService(d.value)} />
+                <span>
+                  <span className="text-[13px] text-white">{d.label}</span>
+                  <span className="block text-[11px] text-muted">{d.text}</span>
+                </span>
+              </label>
+              {services.includes(d.value) && d.fields.length > 0 && (
+                <div className="flex gap-3 flex-wrap mt-2 ml-6">{d.fields.map(k => field(k))}</div>
+              )}
+              {services.includes(d.value) && d.value === 'youtube' && (
+                <div className="ml-6">
+                  <p className="text-[11px] text-muted mt-1.5">
+                    The API key only changes how songs are <i>searched</i> (official YouTube search instead of the built-in YouTube Music search).
+                    It does not change audio quality — you can leave it empty. Free key: Google Cloud Console → YouTube Data API v3.
+                  </p>
+                  <YoutubeCookies />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <SectionLabel>Audio format</SectionLabel>
+        <p className="text-[12px] text-muted mb-3">Which file type you want. The original quality of the source is the limit: converting never makes a song better.</p>
+
+        {services.includes('youtube') && (
+          <div className="mb-4">
+            <div className="text-[13px] text-white mb-1.5">YouTube downloads are saved as</div>
+            <div className="flex gap-2 flex-wrap">
+              {[['mp3', 'MP3', 'Works on every device (recommended)'], ['m4a', 'M4A (AAC)', 'Slightly better quality than MP3 at the same size'], ['opus', 'Opus', 'Best quality for YouTube, a few old players cannot play it']].map(([v, label, text]) => (
+                <button key={v} type="button" onClick={() => set('TRACK_EXTENSION', v)}
+                  className={`text-left rounded-[8px] border px-3.5 py-2.5 cursor-pointer bg-transparent transition-colors min-w-[170px] ${(vals.TRACK_EXTENSION || 'mp3') === v ? 'border-accent' : 'border-ui-border hover:border-[#444]'}`}>
+                  <div className="text-[13px] text-white">{label}</div>
+                  <div className="text-[11px] text-muted mt-0.5">{text}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted mt-2">YouTube only delivers lossy audio (about 128–160 kbps, more with Premium cookies), so there is no FLAC option here.</p>
+          </div>
+        )}
+
+        {services.includes('slskd') && (
+          <div>
+            <div className="text-[13px] text-white mb-1.5">Soulseek: accepted file types</div>
+            <div className="flex gap-4 flex-wrap mb-3">
+              {[['flac', 'FLAC (lossless)'], ['mp3', 'MP3'], ['m4a', 'M4A'], ['ogg', 'OGG']].map(([v, label]) => {
+                const exts = (vals.EXTENSIONS || 'flac,mp3').split(',').map(x => x.trim()).filter(Boolean)
+                return (
+                  <label key={v} className="flex items-center gap-2 text-[13px] text-white cursor-pointer">
+                    <input type="checkbox" checked={exts.includes(v)} onChange={() => {
+                      const next = exts.includes(v) ? exts.filter(x => x !== v) : [...exts, v]
+                      set('EXTENSIONS', (next.length ? next : ['mp3']).join(','))
+                    }} />
+                    {label}
+                  </label>
+                )
+              })}
+            </div>
+            <label className="flex flex-col gap-1 w-[260px]">
+              <span className="text-[12px] text-muted">Minimum quality for lossy files</span>
+              <select value={vals.MIN_BITRATE || '256'} onChange={e => set('MIN_BITRATE', e.target.value)} className={inputCls}>
+                <option value="128">128 kbps (small, lower quality)</option>
+                <option value="192">192 kbps</option>
+                <option value="256">256 kbps (default)</option>
+                <option value="320">320 kbps (best MP3)</option>
+              </select>
+            </label>
+            <p className="text-[11px] text-muted mt-2">Songs below this quality are skipped. FLAC is not affected.</p>
+          </div>
+        )}
+
+        {!services.includes('youtube') && !services.includes('slskd') && (
+          <p className="text-[12px] text-muted">The format is decided by Lidarr for your selected source.</p>
+        )}
+      </div>
+
+      <div className="sticky bottom-0 z-20 flex items-center gap-3 mt-5 -mx-6 px-6 py-3 border-t border-ui-border bg-[#121212]/95 backdrop-blur">
+        <Button onClick={save} disabled={!canSave}>Save settings</Button>
+        <span className="text-[12px] text-muted">{status || (adminMissing.length ? 'Please fill in the admin account above.' : dirty ? 'Unsaved changes. Saved settings apply from the next run on.' : '')}</span>
+      </div>
+    </div>
+  )
+}
+
 function ConfigSection({ onWizard }) {
   const [rawConfig, setRawConfig] = useState('')
   const [editing, setEditing] = useState(false)
@@ -882,9 +1327,17 @@ function ConfigSection({ onWizard }) {
 
   return (
     <div>
+      <SettingsForm />
+
+      <PlaylistHandling />
+
+      <DownloadPathSection />
+
+      <details className="mt-6 group">
+        <summary className="cursor-pointer text-[13px] text-muted hover:text-white select-none">Advanced: edit the config file directly</summary>
       <div className="mt-6">
         <div className="flex items-center justify-between mb-3.5">
-          <SectionLabel className="">Config file</SectionLabel>
+          <SectionLabel className="">Config file (.env)</SectionLabel>
           {!editing ? (
             <Button onClick={() => setEditing(true)}>Edit</Button>
           ) : (
@@ -914,7 +1367,7 @@ function ConfigSection({ onWizard }) {
         )}
       </div>
 
-      <DownloadPathSection />
+      </details>
 
       <div className="mt-6">
         <SectionLabel>Setup</SectionLabel>
@@ -985,6 +1438,186 @@ function LogsSection() {
 // Module-level cache so the picked cover survives component remounts.
 let _bgCoverCache = null
 
+function ProfileSwitcher() {
+  const [profiles, setProfiles] = useState([getProfile()])
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [err, setErr] = useState('')
+  const [mode, setMode] = useState(null) // null | 'rename' | 'delete'
+  const current = getProfile()
+
+  useEffect(() => {
+    fetchProfiles().then(list => {
+      setProfiles(list)
+      // the selected profile was deleted/renamed elsewhere: fall back to the default one
+      if (!list.includes(getProfile())) { setProfile('default'); window.location.reload() }
+    }).catch(() => {})
+  }, [])
+
+  const switchTo = (name) => {
+    setProfile(name)
+    window.location.reload()
+  }
+
+  const addProfile = async () => {
+    const name = newName.trim().toLowerCase()
+    if (!name) return
+    try {
+      await createProfile(name)
+      switchTo(name)
+    } catch (e) {
+      setErr(e.message)
+    }
+  }
+
+  const doRename = async () => {
+    const name = newName.trim().toLowerCase()
+    if (!name || name === current) { setMode(null); return }
+    try { await renameProfile(current, name); switchTo(name) } catch (e) { setErr(e.message) }
+  }
+  const doDelete = async () => {
+    try { await deleteProfile(current); switchTo('default') } catch (e) { setErr(e.message) }
+  }
+
+  if (mode === 'rename') {
+    return (
+      <div className="pb-2 flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={newName}
+          onChange={e => { setNewName(e.target.value); setErr('') }}
+          onKeyDown={e => { if (e.key === 'Enter') doRename(); if (e.key === 'Escape') setMode(null) }}
+          className="text-[12px] text-white bg-transparent border border-ui-border rounded px-1.5 py-0.5 w-[120px] outline-none focus:border-accent"
+        />
+        <button onClick={doRename} className="text-[12px] text-accent bg-transparent border-none cursor-pointer">Rename</button>
+        <button onClick={() => { setMode(null); setErr('') }} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">✕</button>
+        {err && <span className="text-[11px] text-danger">{err}</span>}
+      </div>
+    )
+  }
+
+  if (mode === 'delete') {
+    return (
+      <div className="pb-2 flex items-center gap-2 flex-wrap max-w-[420px] justify-end">
+        <span className="text-[12px] text-muted">Delete profile “{current}”? Its folder is moved to profiles/.trash, nothing is erased.</span>
+        <button onClick={doDelete} className="text-[12px] text-danger bg-transparent border-none cursor-pointer">Delete</button>
+        <button onClick={() => { setMode(null); setErr('') }} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">Cancel</button>
+        {err && <span className="text-[11px] text-danger">{err}</span>}
+      </div>
+    )
+  }
+
+  if (adding) {
+    return (
+      <div className="pb-2 flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={newName}
+          onChange={e => { setNewName(e.target.value); setErr('') }}
+          onKeyDown={e => { if (e.key === 'Enter') addProfile(); if (e.key === 'Escape') setAdding(false) }}
+          placeholder="name, e.g. anna"
+          className="text-[12px] text-white bg-transparent border border-ui-border rounded px-1.5 py-0.5 w-[120px] outline-none focus:border-accent"
+        />
+        <button onClick={addProfile} className="text-[12px] text-accent bg-transparent border-none cursor-pointer">Add</button>
+        <button onClick={() => { setAdding(false); setErr('') }} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">✕</button>
+        {err && <span className="text-[11px] text-danger">{err}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="pb-2 flex items-center gap-1">
+      <select
+        value={current}
+        onChange={(e) => (e.target.value === '__add__' ? setAdding(true) : switchTo(e.target.value))}
+        title="User profile"
+        className="text-[12px] text-muted bg-transparent border border-ui-border rounded px-1 py-0.5 cursor-pointer"
+      >
+        {profiles.map((n) => (
+          <option key={n} value={n} className="bg-black">{n}</option>
+        ))}
+        <option value="__add__" className="bg-black">+ add profile…</option>
+      </select>
+      {current !== 'default' && (
+        <>
+          <button onClick={() => { setNewName(current); setErr(''); setMode('rename') }} title="Rename this profile"
+            className="text-[12px] text-muted hover:text-white bg-transparent border-none cursor-pointer">Rename</button>
+          <button onClick={() => { setErr(''); setMode('delete') }} title="Delete this profile"
+            className="text-[12px] text-muted hover:text-danger bg-transparent border-none cursor-pointer">Delete</button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function RestartBanner() {
+  const pollTimer = useRef(null)
+  useEffect(() => () => clearTimeout(pollTimer.current), [])
+  const [needed, setNeeded] = useState(false)
+  const [phase, setPhase] = useState('idle') // idle | confirm | restarting
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    const check = () => restartNeeded().then(v => { if (alive) setNeeded(v) })
+    check()
+    window.addEventListener('explo-changed', check)
+    const t = setInterval(check, 10000)
+    return () => { alive = false; window.removeEventListener('explo-changed', check); clearInterval(t) }
+  }, [])
+
+  const go = async () => {
+    setErr('')
+    try {
+      await restartNow()
+      setPhase('restarting')
+      // wait for the container to go down and come back, then reload. Any HTTP answer counts as
+      // "back" (a 401 is fine: sessions do not survive a restart), a connection error means "down".
+      let wentDown = false
+      const started = Date.now()
+      const poll = async () => {
+        if (Date.now() - started > 180000) {
+          setPhase('confirm')
+          setErr('The restart takes longer than expected. Check the container (docker ps / docker logs).')
+          return
+        }
+        try {
+          await fetch('/api/ui/auth/status', { cache: 'no-store' })
+          if (wentDown || Date.now() - started > 15000) { window.location.reload(); return }
+        } catch { wentDown = true }
+        pollTimer.current = setTimeout(poll, 1500)
+      }
+      pollTimer.current = setTimeout(poll, 2000)
+    } catch (e) { setErr(e.message); setPhase('confirm') }
+  }
+
+  if (!needed && phase !== 'restarting') return null
+  return (
+    <div className="mb-4 rounded-[8px] border border-accent/60 bg-[#16221a] px-4 py-3 flex items-center gap-3 flex-wrap">
+      {phase === 'restarting' ? (
+        <span className="text-[13px] text-white">Restarting Explo… this page reloads automatically.</span>
+      ) : (
+        <>
+          <div className="flex-1 min-w-[220px]">
+            <div className="text-[13px] text-white">Restart needed</div>
+            <div className="text-[11px] text-muted">Changed schedules and profiles only take effect after Explo restarts. The container must have a restart policy (restart: unless-stopped).</div>
+            {err && <div className="text-[11px] text-danger mt-1">{err}</div>}
+          </div>
+          {phase === 'idle' ? (
+            <Button onClick={() => setPhase('confirm')}>Restart now</Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-muted">A running download would be interrupted.</span>
+              <Button onClick={go}>Yes, restart</Button>
+              <button onClick={() => { setPhase('idle'); setErr('') }} className="bg-transparent border-none text-[12px] text-muted hover:text-white cursor-pointer">Cancel</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Settings({ authDisabled, onWizard, onLogout }) {
   const [activeTab, setActiveTab] = useState('run')
   const [bgCover, setBgCover] = useState(_bgCoverCache)
@@ -1040,6 +1673,7 @@ export default function Settings({ authDisabled, onWizard, onLogout }) {
               <button className={tabBtnCls(activeTab === 'config')} onClick={() => setActiveTab('config')}>Settings</button>
               <button className={tabBtnCls(activeTab === 'logs')} onClick={() => setActiveTab('logs')}>Logs</button>
             </nav>
+            <ProfileSwitcher />
             {authDisabled ? (
               <span
                 title="UI_USERNAME and UI_PASSWORD are not set, so the web UI is open to anyone who can reach it."
@@ -1057,6 +1691,7 @@ export default function Settings({ authDisabled, onWizard, onLogout }) {
             )}
           </header>
 
+          <RestartBanner />
           {activeTab === 'run' && <HomeSection />}
           {activeTab === 'config' && <ConfigSection onWizard={onWizard} />}
           {activeTab === 'logs' && <LogsSection />}

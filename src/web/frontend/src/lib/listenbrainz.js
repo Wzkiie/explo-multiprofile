@@ -1,4 +1,6 @@
 // Session-level cache — avoids repeat fetches on open/close within the same page load.
+import { withProfile } from './api'
+
 const memCache = new Map()
 
 export function clearPlaylistCache(playlistType) {
@@ -10,7 +12,7 @@ export async function fetchPlaylistTracks(playlistType, options = {}) {
   const key = playlistType
   if (!options.force && memCache.has(key)) return memCache.get(key)
 
-  const res = await fetch(`/api/ui/playlists?type=${encodeURIComponent(playlistType)}`, {
+  const res = await fetch(withProfile(`/api/ui/playlists?type=${encodeURIComponent(playlistType)}`), {
     credentials: 'include',
   })
   if (res.status === 404) {

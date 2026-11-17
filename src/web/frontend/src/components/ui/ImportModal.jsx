@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { importCustomPlaylist } from '../../lib/api'
+import { importCustomPlaylist, uploadCover } from '../../lib/api'
 import listenbrainzIcon from '../../assets/listenbrainz.svg'
 import appleMusicIcon from '../../assets/apple-music.svg'
 import spotifyIcon from '../../assets/spotify.svg'
@@ -59,6 +59,12 @@ function SuccessPanel({ result, onImported, onSync, onClose, onError }) {
 
   const handleCoverLoaded = useCallback(() => setLoadedCount(n => n + 1), [])
 
+  // safety net: a cover image that neither loads nor fails must not lock the modal (it covers the whole page)
+  useEffect(() => {
+    const t = setTimeout(() => setFooterReady(true), 6000)
+    return () => clearTimeout(t)
+  }, [])
+
   useEffect(() => {
     if (unique.length === 0 || loadedCount < unique.length) return
     const t = setTimeout(() => setFooterReady(true), (unique.length - 1) * 180 + 1300)
@@ -73,6 +79,9 @@ function SuccessPanel({ result, onImported, onSync, onClose, onError }) {
           <p className="text-[11px] text-muted mt-1">
             {result.track_count} track{result.track_count !== 1 ? 's' : ''} imported
           </p>
+          {result.coverError && (
+            <p className="text-[11px] text-danger mt-1">Cover not saved: {result.coverError}. You can add it later in the playlist’s ⋮ menu.</p>
+          )}
         </div>
       </div>
 
@@ -125,6 +134,7 @@ export function ImportModal({ onClose, onImported, onSync }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
+  const [coverFile, setCoverFile] = useState(null)
 
   const sourceCfg = SOURCES.find(s => s.key === source)
 
@@ -133,7 +143,11 @@ export function ImportModal({ onClose, onImported, onSync }) {
     setLoading(true)
     try {
       const data = await importCustomPlaylist(url.trim(), source, refreshDays)
-      setResult(data)
+      let coverError = ''
+      if (coverFile) {
+        try { await uploadCover(data.id, coverFile) } catch (e) { coverError = e.message || 'cover upload failed' }
+      }
+      setResult({ ...data, coverError })
       setPhase('success')
     } catch (e) {
       setErrorMsg(e.message || 'Import failed')
@@ -291,12 +305,25 @@ export function ImportModal({ onClose, onImported, onSync }) {
                     ))}
                   </select>
                 </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium text-muted">
+                    Cover (optional)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif"
+                    onChange={e => setCoverFile(e.target.files?.[0] ?? null)}
+                    disabled={loading}
+                    className="text-[12px] text-muted file:mr-3 file:rounded-full file:border file:border-ui-border file:bg-transparent file:text-muted file:px-3 file:py-1 file:cursor-pointer"
+                  />
+                </div>
               </div>
 
               {/* Footer */}
               <div className="flex justify-end gap-2 px-5 pb-5">
                 <button
-                  onClick={() => { setPhase('source'); setSource(null); setUrl('') }}
+                  onClick={() => { setPhase('source'); setSource(null); setUrl(''); setCoverFile(null) }}
                   disabled={loading}
                   className="bg-transparent border border-ui-border text-muted rounded-full px-4 py-1.5 text-[13px] cursor-pointer hover:text-white hover:border-[#444] transition-colors disabled:opacity-40"
                 >

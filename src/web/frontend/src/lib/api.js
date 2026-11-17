@@ -1,9 +1,44 @@
 let csrfToken = null
 
+// ---- profiles (multi-user): the selected profile is sent as ?profile=<name> ----
+const PROFILE_KEY = 'explo_profile'
+
+export function getProfile() {
+  try { return localStorage.getItem(PROFILE_KEY) || 'default' } catch { return 'default' }
+}
+
+export function setProfile(name) {
+  try { localStorage.setItem(PROFILE_KEY, name) } catch { /* ignore */ }
+}
+
+// Adds ?profile=<name> to /api/ui/ URLs that are profile-specific.
+export function withProfile(url) {
+  const profile = getProfile()
+  if (profile === 'default') return url
+  if (!url.startsWith('/api/ui/') || /^\/api\/ui\/(csrf|login|logout|auth|profiles)/.test(url)) return url
+  return url + (url.includes('?') ? '&' : '?') + 'profile=' + encodeURIComponent(profile)
+}
+
+export async function fetchProfiles() {
+  const res = await apiFetch('/api/ui/profiles')
+  return res.ok ? res.json() : ['default']
+}
+
+export async function createProfile(name) {
+  const res = await apiFetch('/api/ui/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'failed to create profile')
+  return res.json()
+}
+
 async function ensureCSRF() {
   if (csrfToken) return csrfToken
 
-  const res = await fetch('/api/ui/csrf')
+  const res = await fetch('/api/ui/csrf', { credentials: 'include' })
+  if (!res.ok) throw new Error('could not get a CSRF token')
   const data = await res.json()
   csrfToken = data.csrf_token
   return csrfToken
@@ -11,19 +46,22 @@ async function ensureCSRF() {
 
 async function apiFetch(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
+  const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
 
-  const headers = new Headers(options.headers || {})
-
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    const token = await ensureCSRF()
-    headers.set('X-CSRF-Token', token)
+  const send = async () => {
+    const headers = new Headers(options.headers || {})
+    if (mutating) headers.set('X-CSRF-Token', await ensureCSRF())
+    return fetch(withProfile(url), { credentials: 'include', ...options, headers })
   }
 
-  return fetch(url, {
-    credentials: 'include',
-    ...options,
-    headers,
-  })
+  let res = await send()
+  if (mutating && res.status === 403) {
+    // the CSRF token is tied to the session: after a session expiry or a server restart it is stale
+    csrfToken = null
+    res = await send()
+  }
+  if (method !== 'GET' && res.ok) window.dispatchEvent(new Event('explo-changed'))
+  return res
 }
 
 export async function checkAuth() {
@@ -156,7 +194,7 @@ export async function logout() {
 
 export async function fetchSetupStatus() {
   try {
-    const res = await fetch('/api/ui/setup-status')
+    const res = await fetch(withProfile('/api/ui/setup-status'))
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -261,11 +299,94 @@ export async function saveSuffixRemoval(enabled) {
 
 export async function fetchBackgroundArt() {
   try {
-    const res = await fetch('/api/ui/background-art')
+    const res = await fetch(withProfile('/api/ui/background-art'))
     if (!res.ok) return null
     const { url } = await res.json()
     return url || null
   } catch {
     return null
   }
+}
+
+
+// ---- custom playlist covers ----
+export function coverUrl(id, bust = '') {
+  const u = withProfile(`/api/ui/playlists/${encodeURIComponent(id)}/cover`)
+  return bust ? u + (u.includes('?') ? '&' : '?') + 't=' + bust : u
+}
+
+export async function hasCover(id) {
+  const res = await apiFetch(`/api/ui/playlists/${encodeURIComponent(id)}/cover`)
+  return res.ok
+}
+
+export async function uploadCover(id, file) {
+  const form = new FormData()
+  form.append('image', file)
+  const res = await apiFetch(`/api/ui/playlists/${encodeURIComponent(id)}/cover`, { method: 'POST', body: form })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'upload failed')
+}
+
+export async function deleteCover(id) {
+  const res = await apiFetch(`/api/ui/playlists/${encodeURIComponent(id)}/cover`, { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'delete failed')
+}
+
+
+export async function saveConfigKeys(values) {
+  const res = await apiFetch('/api/ui/config/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'save failed')
+}
+
+
+// ---- YouTube cookies.txt ----
+export async function cookiesPresent() {
+  const res = await apiFetch('/api/ui/cookies')
+  return res.ok ? (await res.json()).present : false
+}
+
+export async function uploadCookies(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await apiFetch('/api/ui/cookies', { method: 'POST', body: form })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'upload failed')
+}
+
+export async function deleteCookies() {
+  const res = await apiFetch('/api/ui/cookies', { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'delete failed')
+}
+
+
+// ---- profile rename / delete, restart ----
+export async function renameProfile(oldName, newName) {
+  const res = await apiFetch(`/api/ui/profiles/${encodeURIComponent(oldName)}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'rename failed')
+  return res.json()
+}
+
+export async function deleteProfile(name) {
+  const res = await apiFetch(`/api/ui/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'delete failed')
+  return res.json()
+}
+
+export async function restartNeeded() {
+  try {
+    const res = await apiFetch('/api/ui/restart')
+    return res.ok ? (await res.json()).needed : false
+  } catch { return false }
+}
+
+export async function restartNow() {
+  const res = await apiFetch('/api/ui/restart', { method: 'POST' })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'restart failed')
 }
