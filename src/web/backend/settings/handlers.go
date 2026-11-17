@@ -56,6 +56,7 @@ func (s *Settings) HandleGetConfigRaw(w http.ResponseWriter, r *http.Request) {
 		data = web.SampleEnv
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Env-Version", envVersion(data))
 	if _, err := w.Write(data); err != nil {
 		slog.Error("failed writing http response", "msg", err.Error())
 	}
@@ -72,7 +73,18 @@ func (s *Settings) HandleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid .env content: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := os.WriteFile(s.cfg.WebEnvPath, data, 0600); err != nil {
+	envWriteMu.Lock()
+	defer envWriteMu.Unlock()
+	// The editor holds a snapshot of the whole file. If anything changed it since (schedules, replace
+	// mode, ...), saving the snapshot would silently undo that: refuse and ask for a reload.
+	if want := r.Header.Get("X-Env-Version"); want != "" {
+		cur, _ := os.ReadFile(s.cfg.WebEnvPath)
+		if envVersion(cur) != want {
+			http.Error(w, "the config changed in the meantime — reload the page and edit again", http.StatusConflict)
+			return
+		}
+	}
+	if err := writeEnvFile(s.cfg.WebEnvPath, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -81,7 +93,10 @@ func (s *Settings) HandleSaveConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleResetConfig resets all settings and restarts the container.
 func (s *Settings) HandleResetConfig(w http.ResponseWriter, r *http.Request) {
-	if err := os.WriteFile(s.cfg.WebEnvPath, web.SampleEnv, 0600); err != nil {
+	envWriteMu.Lock()
+	err := writeEnvFile(s.cfg.WebEnvPath, web.SampleEnv)
+	envWriteMu.Unlock()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -307,11 +307,13 @@ function PlaylistHandling() {
 
   const mode = items.length === 0 ? null : items.every(i => i.replace) ? 'replace' : items.every(i => !i.replace) ? 'keep' : 'mixed'
 
-  const setAll = (next) => {
+  const setAll = async (next) => {
     setItems(prev => prev.map(i => ({ ...i, replace: next })))
+    // one after the other: parallel saves of the same config file used to overwrite each other
     for (const i of items) {
-      saveReplacePlaylist(i.id, i.name, next).catch(() =>
-        setItems(prev => prev.map(x => x.id === i.id ? { ...x, replace: !next } : x)))
+      try { await saveReplacePlaylist(i.id, i.name, next) } catch {
+        setItems(prev => prev.map(x => x.id === i.id ? { ...x, replace: !next } : x))
+      }
     }
   }
 
@@ -1359,8 +1361,8 @@ function ConfigSection({ onWizard }) {
       setEditing(false)
       setSaveStatus('Saved.')
       setTimeout(() => setSaveStatus(''), 2500)
-    } catch {
-      setSaveStatus('Error saving.')
+    } catch (e) {
+      setSaveStatus(e.message && e.message.length < 120 ? e.message : 'Error saving.')
     }
   }
 

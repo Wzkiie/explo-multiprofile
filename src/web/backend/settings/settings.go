@@ -1,6 +1,9 @@
 package settings
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"sync"
 	"fmt"
 	"os"
 	"strings"
@@ -70,7 +73,13 @@ func validateEnvText(text string) error {
 
 // updateEnvKeys reads the env file (falling back to fallback if missing), updates the
 // given key=value pairs in-place preserving comments, and writes the result back.
+// envWriteMu serializes every read-modify-write of an .env file. The UI fires several saves at once
+// (e.g. "Replace" for all playlists); without the lock they overwrite each other and can leave a half-written file.
+var envWriteMu sync.Mutex
+
 func (s *Settings) UpdateEnvKeys(updates map[string]string, fallback []byte) error {
+	envWriteMu.Lock()
+	defer envWriteMu.Unlock()
 	path := s.cfg.WebEnvPath
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -121,7 +130,21 @@ func (s *Settings) UpdateEnvKeys(updates map[string]string, fallback []byte) err
 		prevBlank = blank
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0600)
+	return writeEnvFile(path, []byte(strings.Join(out, "\n")+"\n"))
+}
+
+// writeEnvFile replaces the file atomically (temp file + rename) so a run or a restart never reads a
+// half-written .env. A single file mounted into a container cannot be replaced by rename, so in that
+// case it is overwritten in place (still under envWriteMu).
+func writeEnvFile(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err == nil {
+		if err := os.Rename(tmp, path); err == nil {
+			return nil
+		}
+		_ = os.Remove(tmp)
+	}
+	return os.WriteFile(path, data, 0600)
 }
 
 // Check for special chars in env vars that might need quoting
@@ -138,4 +161,10 @@ func formatEnvValue(v string) string {
 	}
 
 	return v
+}
+
+// envVersion identifies the content of an .env file (used to detect a stale editor snapshot).
+func envVersion(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

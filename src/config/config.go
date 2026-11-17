@@ -227,8 +227,13 @@ func (cfg *Config) ReadEnv() {
 		slog.Warn("config path is a directory, using .env inside it", "path", cfg.Flags.CfgPath)
 	}
 
-	// Try to read from .env file first
+	// Try to read from .env file first. A parse error is retried a few times: the web UI may be
+	// rewriting the file at this very moment (e.g. right before a restart).
 	err := cleanenv.ReadConfig(cfg.Flags.CfgPath, cfg)
+	for i := 0; err != nil && !errors.Is(err, os.ErrNotExist) && i < 5; i++ {
+		time.Sleep(time.Second)
+		err = cleanenv.ReadConfig(cfg.Flags.CfgPath, cfg)
+	}
 	if err != nil {
 		// If the error is because the file doesn't exist, fallback to env vars
 		if errors.Is(err, os.ErrNotExist) {

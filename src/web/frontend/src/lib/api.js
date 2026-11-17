@@ -94,18 +94,22 @@ export async function fetchConfig() {
   return res.json()
 }
 
+let rawVersion = ''
+
 export async function fetchConfigRaw() {
   const res = await apiFetch('/api/ui/config/raw')
+  rawVersion = res.headers.get('X-Env-Version') || ''
   return res.text()
 }
 
+// Sends the edited text together with the version it was loaded from: the server refuses the save
+// if the file changed meanwhile, so an old editor snapshot cannot overwrite newer settings.
 export async function saveConfig(text) {
-  const res = await apiFetch('/api/ui/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: text,
-  })
-  if (!res.ok) throw new Error(await res.text())
+  const headers = { 'Content-Type': 'text/plain' }
+  if (rawVersion) headers['X-Env-Version'] = rawVersion
+  const res = await apiFetch('/api/ui/config', { method: 'POST', headers, body: text })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'save failed')
+  await fetchConfigRaw().catch(() => {})
 }
 
 export async function resetConfig() {

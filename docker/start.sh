@@ -57,6 +57,7 @@ if [ -d "$WEB_ENV_PATH" ]; then
     echo "[setup] Config path is a directory, using $WEB_ENV_PATH"
 fi
 WEB_UI=true WEB_ENV_PATH="$WEB_ENV_PATH" WEB_ADDR="${WEB_ADDR:-:7288}" $RUNNER ./explo --config "$WEB_ENV_PATH" &
+WEB_PID=$!
 echo "[setup] Web UI available at http://localhost:${WEB_ADDR##*:}"
 
 echo "[setup] Initializing cron jobs..."
@@ -155,6 +156,13 @@ fi
 crond -f -l 2 &
 CROND_PID=$!
 while kill -0 "$CROND_PID" 2>/dev/null; do
+  # the web UI died (e.g. unreadable config): end the container so Docker restarts it, instead of
+  # leaving a container that only runs cron and has no web UI
+  if ! kill -0 "$WEB_PID" 2>/dev/null; then
+    echo "[setup] Web UI stopped unexpectedly, stopping container so it gets restarted..."
+    kill "$CROND_PID" 2>/dev/null
+    exit 1
+  fi
   if [ -f "$RESTART_FLAG" ]; then
     echo "[setup] Restart requested from the web UI, stopping container..."
     kill "$CROND_PID" 2>/dev/null
