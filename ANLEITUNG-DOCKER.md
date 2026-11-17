@@ -42,6 +42,18 @@ docker build -t explo-multi:test .
 Das Dockerfile baut das Frontend (Node) und das Backend (Go) selbst, es ist nichts vorzubereiten.
 Dauer: ein paar Minuten. Bei Problemen mit `TARGETARCH`: `docker buildx build --load -t explo-multi:test .`.
 
+### Alternative: fertiges Image von GitHub
+
+GitHub baut das Image bei jedem Push selbst (amd64 und arm64): `ghcr.io/wzkiie/explo-multiprofile:latest`.
+Das Paket ist privat, auf dem Rechner einmal anmelden (Token mit Recht `read:packages`, **nicht** in Chats posten):
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u Wzkiie --password-stdin
+docker pull ghcr.io/wzkiie/explo-multiprofile:latest
+```
+
+Dann in `docker-compose.test.yaml` bei `image:` diesen Namen eintragen und den Bau-Schritt überspringen.
+
 ## 4. Starten
 
 Die Datei `docker-compose.test.yaml` liegt im Ordner. Einmal die Ordner vorbereiten:
