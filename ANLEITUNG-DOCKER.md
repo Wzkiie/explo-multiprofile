@@ -173,7 +173,7 @@ Das Wegwerf-Konto und die Test-Playlists danach wieder löschen.
    Danach im Profil in Settings prüfen (Server, Nutzer, Admin) und speichern. Passwörter nur per Datei kopieren, nie in Chats.
 4. Zeitpläne in der UI setzen (gestaffelt, z. B. 03:00, 03:10 …). Die Hermes-Cron-Jobs und Lockfile-Scripte danach abschalten,
    sonst laufen beide (Doppel-Trigger). Steht ein `*_SCHEDULE` in der Compose-Datei, hat er Vorrang vor der UI: entfernen.
-5. Spotify-/Apple-/ListenBrainz-Playlists mit hinterlegter Quell-URL holen sich die aktuellen Tracks bei **jedem Lauf selbst**
+5. Spotify-/Apple-/ListenBrainz-Playlists mit hinterlegter Quell-URL holen sich die aktuellen Tracks bei **jedem Lauf selbst** (Log: `spotify tracklist refreshed … added=X removed=Y`; Mindestabstand zwischen zwei Abrufen über alle Profile: `CUSTOM_REFRESH_MIN_INTERVAL_SECONDS`, Standard 30, `0` = aus; schlägt der Abruf fehl, läuft der Lauf mit dem alten Cache weiter)
    (der separate `spotify-refresh.py` ist dafür nicht mehr nötig). Einträge ohne `source_url` in `custom-playlists.json` nutzen den Cache wie bisher.
 6. Cover: pro Playlist einmal in der UI hochladen (⋮ → Set cover). Sie werden bei jedem Lauf neu gesetzt. `navidrome-set-covers.sh` entfällt.
 7. Dubletten: „Replace the old playlist" löscht alle gleichnamigen eigenen Playlists. Für datierte Kopien (z. B. Daily-Jams) unter
