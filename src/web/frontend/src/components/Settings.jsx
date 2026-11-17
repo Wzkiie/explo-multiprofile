@@ -15,7 +15,7 @@ import {
   fetchConfig, fetchConfigRaw, saveConfig, resetConfig,
   saveSchedule, startRun, stopRun, fetchRunStatus, fetchLogs,
   fetchCustomPlaylists, deleteCustomPlaylist, savePathTemplate, saveEnrichMetadata,
-  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount,
+  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount, spotifyCookiePresent, saveSpotifyCookie, deleteSpotifyCookie,
   cookiesPresent, uploadCookies, deleteCookies,
   renameProfile, deleteProfile, restartNeeded, restartNow,
   fetchPathTemplatePresets, addPathTemplatePreset, deletePathTemplatePreset,
@@ -1087,6 +1087,58 @@ function YoutubeCookies() {
   )
 }
 
+// Spotify login cookie (sp_dc) of this profile: needed for personal playlists (Blend, Daily Mix, Discover Weekly of your account).
+function SpotifyCookie() {
+  const [present, setPresent] = useState(false)
+  const [value, setValue] = useState('')
+  const [msg, setMsg] = useState('')
+  const inputRef = useRef(null)
+  useEffect(() => { spotifyCookiePresent().then(setPresent).catch(() => {}) }, [])
+
+  const save = async (args) => {
+    try { await saveSpotifyCookie(args); setPresent(true); setValue(''); setMsg('Spotify cookie saved ✓') } catch (err) { setMsg(err.message) }
+  }
+  const onPick = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (file) save({ file })
+  }
+  const onRemove = async () => {
+    try { await deleteSpotifyCookie(); setPresent(false); setMsg('Spotify cookie removed') } catch (err) { setMsg(err.message) }
+  }
+
+  return (
+    <div className="mt-6">
+      <SectionLabel>Spotify login (optional)</SectionLabel>
+      <div className="rounded-[8px] border border-ui-border p-3.5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-[13px] text-white">Spotify cookie {present && <span className="text-accent text-[12px]">· active</span>}</div>
+          <div className="flex items-center gap-2">
+            <input ref={inputRef} type="file" accept=".txt,text/plain" className="hidden" onChange={onPick} />
+            <Button onClick={() => inputRef.current?.click()}>{present ? 'Replace cookies.txt…' : 'Upload cookies.txt…'}</Button>
+            {present && <button onClick={onRemove} className="bg-transparent border-none text-[12px] text-muted hover:text-white cursor-pointer">Remove</button>}
+          </div>
+        </div>
+        <p className="text-[11px] text-muted mt-2">
+          Without it, Explo only sees public playlists. With it, it can also read personal ones: <b>Blend</b>, your Daily Mixes, Discover Weekly
+          and private playlists of this Spotify account. Each profile has its own cookie.
+        </p>
+        <p className="text-[11px] text-muted mt-1">
+          How: log in at open.spotify.com in your browser, export the cookies in <b>Netscape format</b> (e.g. “Get cookies.txt LOCALLY”) and upload
+          the file, or paste the value of the cookie <code>sp_dc</code> below. It stays valid for months; if Spotify stops accepting it, upload a new one.
+          Tip: the cookie gives access to the account, only use it on your own server.
+        </p>
+        <div className="flex gap-2 mt-2.5 items-center">
+          <input type="password" value={value} onChange={e => setValue(e.target.value)} placeholder="or paste the sp_dc value" autoComplete="off" spellCheck={false}
+            className="bg-well border border-ui-border text-white rounded-[6px] px-2.5 py-1.5 text-[13px] outline-none focus:border-accent flex-1" />
+          <Button onClick={() => value.trim() && save({ value: value.trim() })} disabled={!value.trim()}>Save</Button>
+        </div>
+        {msg && <p className="text-[12px] text-muted mt-1.5">{msg}</p>}
+      </div>
+    </div>
+  )
+}
+
 function SettingsForm() {
   const [vals, setVals] = useState(null)
   const [status, setStatus] = useState('')
@@ -1383,6 +1435,8 @@ function ConfigSection({ onWizard }) {
   return (
     <div>
       <SettingsForm />
+
+      <SpotifyCookie />
 
       <PlaylistHandling />
 

@@ -122,13 +122,13 @@ type FetchResult struct {
 
 // fetchCustomPlaylistTracks dispatches to the appropriate source fetcher.
 // This is the single point where source-specific logic lives for fetching.
-func fetchCustomPlaylistTracks(p CustomPlaylist, enabled bool) (FetchResult, error) {
+func fetchCustomPlaylistTracks(cfgDir string, p CustomPlaylist, enabled bool) (FetchResult, error) {
 	switch p.Source {
 	case "apple_music":
 		name, art, tracks, err := fetchAppleMusicPlaylist(p.SourceURL, enabled)
 		return FetchResult{name, art, tracks}, err
 	case "spotify":
-		name, art, tracks, err := fetchSpotifyPlaylist(p.SourceURL)
+		name, art, tracks, err := fetchSpotifyPlaylist(p.SourceURL, readSpotifyCookie(cfgDir))
 		return FetchResult{name, art, tracks}, err
 	default: // "listenbrainz" or legacy empty
 		mbid := p.LBMBID
@@ -302,7 +302,7 @@ func RefreshCustomPlaylist(cfgDir, id string, suffixRemoval bool) (bool, error) 
 	if external {
 		waitForRefreshSlot(cfgDir)
 	}
-	result, err := fetchTracksFn(*cp, suffixRemoval)
+	result, err := fetchTracksFn(cfgDir, *cp, suffixRemoval)
 	if external {
 		markRefreshDone(cfgDir) // also after a failure: do not hammer a source that is struggling
 	}

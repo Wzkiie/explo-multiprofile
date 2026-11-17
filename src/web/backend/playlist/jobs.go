@@ -50,7 +50,7 @@ func (p *Playlist) RegisterCustomPlaylistRefresh(j *jobs.Jobs) error {
 					return
 				}
 				slog.Info("custom-playlists: refreshing", "id", plist.ID, "name", plist.Name, "source", plist.Source)
-				result, err := fetchCustomPlaylistTracks(plist, AMSuffixRe)
+				result, err := fetchCustomPlaylistTracks(p.cfg.WebDataDir, plist, AMSuffixRe)
 				if err != nil {
 					slog.Warn("custom-playlists: refresh fetch failed", "id", plist.ID, "err", err)
 					return

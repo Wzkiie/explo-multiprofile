@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -172,6 +174,7 @@ const spotifyUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
 	"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
 type spotifySession struct {
+	spDC          string // optional sp_dc login cookie: needed for personal playlists (Blend, Daily Mix, ...)
 	mu            sync.Mutex
 	client        *http.Client
 	clientVersion string
@@ -183,7 +186,35 @@ type spotifySession struct {
 	expiresAt     time.Time
 }
 
-var spSession = &spotifySession{}
+var (
+	spSessionsMu sync.Mutex
+	spSessions   = map[string]*spotifySession{}
+)
+
+// sessionFor returns the (cached) Spotify web-player session for a login cookie; "" = anonymous.
+func sessionFor(spDC string) *spotifySession {
+	spSessionsMu.Lock()
+	defer spSessionsMu.Unlock()
+	if s, ok := spSessions[spDC]; ok {
+		return s
+	}
+	s := &spotifySession{spDC: spDC}
+	spSessions[spDC] = s
+	return s
+}
+
+// spotifyCookiePath is where a profile's sp_dc cookie is stored (mode 0600).
+func spotifyCookiePath(cfgDir string) string {
+	return filepath.Join(cfgDir, "spotify-cookie")
+}
+
+func readSpotifyCookie(cfgDir string) string {
+	raw, err := os.ReadFile(spotifyCookiePath(cfgDir))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
 
 func (s *spotifySession) invalidate() {
 	s.mu.Lock()
@@ -204,6 +235,11 @@ func (s *spotifySession) ensure() error {
 	slog.Info("spotify: initializing new session")
 
 	jar, _ := cookiejar.New(nil)
+	if s.spDC != "" {
+		if u, err := url.Parse("https://open.spotify.com"); err == nil {
+			jar.SetCookies(u, []*http.Cookie{{Name: "sp_dc", Value: s.spDC, Path: "/", Domain: ".spotify.com", Secure: true}})
+		}
+	}
 	s.client = &http.Client{Jar: jar, Timeout: 30 * time.Second}
 
 	jsPack, err := s.visitHome()
@@ -343,6 +379,7 @@ func (s *spotifySession) fetchAccessToken() error {
 	var tok struct {
 		AccessToken string `json:"accessToken"`
 		ClientID    string `json:"clientId"`
+		IsAnonymous bool   `json:"isAnonymous"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
 		return fmt.Errorf("failed to parse token response: %w", err)
@@ -351,6 +388,9 @@ func (s *spotifySession) fetchAccessToken() error {
 		return fmt.Errorf("received empty access token")
 	}
 
+	if s.spDC != "" && tok.IsAnonymous {
+		return fmt.Errorf("Spotify did not accept the login cookie (expired or wrong) - upload a fresh sp_dc cookie in Settings")
+	}
 	s.accessToken = tok.AccessToken
 	s.clientID = tok.ClientID
 	return nil
@@ -561,22 +601,26 @@ type partnerTrackData struct {
 // fetchSpotifyPlaylist fetches a public Spotify playlist via the internal
 // partner API (api-partner.spotify.com). Retries once with a fresh session
 // on failure. Returns playlist name, artwork URL, and normalized tracks.
-func fetchSpotifyPlaylist(playlistURL string) (string, string, []PlaylistTrack, error) {
+func fetchSpotifyPlaylist(playlistURL, spDC string) (string, string, []PlaylistTrack, error) {
 	id, err := extractSpotifyID(playlistURL)
 	if err != nil {
 		return "", "", nil, err
 	}
 
-	name, artwork, tracks, err := fetchPlaylistByID(id)
+	sess := sessionFor(spDC)
+	name, artwork, tracks, err := fetchPlaylistByID(sess, id)
 	if err != nil {
 		slog.Debug("spotify: retrying with fresh session", "err", err)
-		spSession.invalidate()
-		name, artwork, tracks, err = fetchPlaylistByID(id)
+		sess.invalidate()
+		name, artwork, tracks, err = fetchPlaylistByID(sess, id)
 	}
 	if err != nil {
 		return "", "", nil, err
 	}
 	if len(tracks) == 0 {
+		if spDC == "" {
+			return "", "", nil, fmt.Errorf("spotify: playlist %q has no tracks (personal playlists such as Blend or Daily Mix need your Spotify cookie: Settings > Spotify)", id)
+		}
 		return "", "", nil, fmt.Errorf("spotify: playlist %q has no tracks", id)
 	}
 
@@ -584,14 +628,14 @@ func fetchSpotifyPlaylist(playlistURL string) (string, string, []PlaylistTrack, 
 	return name, artwork, tracks, nil
 }
 
-func fetchPlaylistByID(id string) (string, string, []PlaylistTrack, error) {
-	if err := spSession.ensure(); err != nil {
+func fetchPlaylistByID(sess *spotifySession, id string) (string, string, []PlaylistTrack, error) {
+	if err := sess.ensure(); err != nil {
 		return "", "", nil, err
 	}
 
 	const pageSize = 343
 
-	resp, err := queryPartnerAPI(id, 0, pageSize)
+	resp, err := queryPartnerAPI(sess, id, 0, pageSize)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -611,7 +655,7 @@ func fetchPlaylistByID(id string) (string, string, []PlaylistTrack, error) {
 
 	// Paginate
 	for offset := pageSize; offset < pl.Content.TotalCount; offset += pageSize {
-		page, err := queryPartnerAPI(id, offset, pageSize)
+		page, err := queryPartnerAPI(sess, id, offset, pageSize)
 		if err != nil {
 			slog.Warn("spotify: pagination failed, returning partial results", "offset", offset, "err", err)
 			break
@@ -623,7 +667,7 @@ func fetchPlaylistByID(id string) (string, string, []PlaylistTrack, error) {
 }
 
 // queryPartnerAPI sends a persisted GraphQL query to api-partner.spotify.com.
-func queryPartnerAPI(playlistID string, offset, limit int) (*partnerPlaylistResp, error) {
+func queryPartnerAPI(sess *spotifySession, playlistID string, offset, limit int) (*partnerPlaylistResp, error) {
 	variables, _ := json.Marshal(map[string]any{
 		"uri":                       "spotify:playlist:" + playlistID,
 		"offset":                    offset,
@@ -633,7 +677,7 @@ func queryPartnerAPI(playlistID string, offset, limit int) (*partnerPlaylistResp
 	extensions, _ := json.Marshal(map[string]any{
 		"persistedQuery": map[string]any{
 			"version":    1,
-			"sha256Hash": spSession.playlistHash,
+			"sha256Hash": sess.playlistHash,
 		},
 	})
 
@@ -647,14 +691,14 @@ func queryPartnerAPI(playlistID string, offset, limit int) (*partnerPlaylistResp
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+spSession.accessToken)
-	req.Header.Set("Client-Token", spSession.clientToken)
-	req.Header.Set("Spotify-App-Version", spSession.clientVersion)
+	req.Header.Set("Authorization", "Bearer "+sess.accessToken)
+	req.Header.Set("Client-Token", sess.clientToken)
+	req.Header.Set("Spotify-App-Version", sess.clientVersion)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Accept-Language", "en")
 	req.Header.Set("User-Agent", spotifyUA)
 
-	resp, err := spSession.client.Do(req)
+	resp, err := sess.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("partner API request failed: %w", err)
 	}

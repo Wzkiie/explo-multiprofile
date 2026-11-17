@@ -442,3 +442,23 @@ export async function changeAccount({ current, username, password }) {
   })
   if (!res.ok) throw new Error((await res.text()).trim() || 'could not change the login')
 }
+
+// ---- Spotify login cookie (sp_dc): lets Explo read personal playlists such as Blend and Daily Mix ----
+export async function spotifyCookiePresent() {
+  const res = await apiFetch('/api/ui/spotify-cookie')
+  if (!res.ok) return false
+  return !!(await res.json()).present
+}
+
+export async function saveSpotifyCookie({ file, value }) {
+  const form = new FormData()
+  if (file) form.set('file', file)
+  if (value) form.set('value', value)
+  const res = await apiFetch('/api/ui/spotify-cookie', { method: 'POST', body: form })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'could not save the cookie')
+}
+
+export async function deleteSpotifyCookie() {
+  const res = await apiFetch('/api/ui/spotify-cookie', { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'could not remove the cookie')
+}

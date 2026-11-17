@@ -190,4 +190,9 @@ Das Wegwerf-Konto und die Test-Playlists danach wieder löschen.
 Ist noch kein Login gesetzt, schaltet derselbe Abschnitt ihn ein. Das Login wird als Hash in `ui-auth.json` (0600) im Config-Ordner gespeichert und ersetzt
 `UI_USERNAME`/`UI_PASSWORD` aus der Compose-Datei. Passwort vergessen: `ui-auth.json` löschen und den Container neu starten.
 
+**Persönliche Spotify-Playlists (Blend, Daily Mix, Discover Weekly):** Spotify gibt sie nur angemeldeten Nutzern heraus. Settings → „Spotify login (optional)":
+die `cookies.txt` (Netscape-Format, exportiert auf open.spotify.com) hochladen oder den Wert des Cookies `sp_dc` einfügen. Das Cookie liegt pro Profil in der Datei
+`spotify-cookie` (0600) im Profilordner, nie in der `.env`. Es hält in der Regel viele Monate, danach neu hochladen. Ohne Cookie sehen Blend-Links „has no tracks".
+Ungetestet mit einem echten Konto: bitte mit einer Blend-Playlist prüfen.
+
 Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.

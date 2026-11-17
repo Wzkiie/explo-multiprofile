@@ -44,7 +44,7 @@ func stubTime(t *testing.T) *time.Time {
 func stubFetch(t *testing.T, tracks []PlaylistTrack, err error, calls *int) {
 	t.Helper()
 	old := fetchTracksFn
-	fetchTracksFn = func(p CustomPlaylist, _ bool) (FetchResult, error) {
+	fetchTracksFn = func(_ string, p CustomPlaylist, _ bool) (FetchResult, error) {
 		*calls++
 		return FetchResult{Name: p.Name, Tracks: tracks}, err
 	}

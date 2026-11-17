@@ -96,7 +96,7 @@ func (p *Playlist) HandleImportCustomPlaylist(w http.ResponseWriter, r *http.Req
 		enabled = true
 	}
 
-	result, err := fetchCustomPlaylistTracks(CustomPlaylist{Source: body.Source, SourceURL: body.URL}, enabled)
+	result, err := fetchCustomPlaylistTracks(p.cfg.WebDataDir, CustomPlaylist{Source: body.Source, SourceURL: body.URL}, enabled)
 	if err != nil {
 		slog.Error("custom-playlists: fetch failed", "source", body.Source, "err", err)
 		http.Error(w, "failed to fetch playlist: "+err.Error(), http.StatusBadGateway)
@@ -243,7 +243,7 @@ func (p *Playlist) HandleRefreshCustomPlaylist(w http.ResponseWriter, r *http.Re
 	plist := playlists[idx]
 	slog.Info("custom-playlists: manual refresh", "id", id, "source", plist.Source)
 
-	result, err := fetchCustomPlaylistTracks(plist, AMSuffixRe)
+	result, err := fetchCustomPlaylistTracks(p.cfg.WebDataDir, plist, AMSuffixRe)
 	if err != nil {
 		slog.Error("custom-playlists: refresh fetch failed", "id", id, "err", err)
 		http.Error(w, "failed to fetch playlist: "+err.Error(), http.StatusBadGateway)
