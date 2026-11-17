@@ -199,4 +199,12 @@ Ungetestet mit einem echten Konto: bitte mit einer Blend-Playlist prüfen.
 jedes bekommt eine eigene Kopie in seinem eigenen Konto (bei Spotify mit dem eigenen Cookie). „Visible to everyone on the music server" macht die Playlist in Navidrome/Jellyfin öffentlich
 (auch nachträglich im ⋮-Menü einer eigenen Playlist; gilt ab dem nächsten Lauf). Das Cover wird nur für das aktuelle Profil mit hochgeladen.
 
+**Zu kurze oder zu lange Downloads (Previews, Shorts, Album-Uploads):** Kennt Explo die echte Länge eines Songs (Spotify-Import und ListenBrainz), misst es nach dem
+YouTube-Download die Datei mit ffprobe. Unter 60 % oder über 200 % der Länge wird sie gelöscht, dann werden bis zu 2 weitere Suchtreffer probiert, sonst wird der Song übersprungen
+(WARN `wrong length: Xs instead of Ys …`). Pro Lauf steht eine Summe im Log (`n downloads checked, m with a wrong length thrown away`). Abschalten: `DURATION_CHECK=false`.
+Die Längen speichert Explo im Playlist-Cache (`durationMs`); bei Spotify-Playlists kommen sie beim nächsten Refresh/Lauf, ältere Caches bleiben lesbar.
+**Schon vorhandene kurze Dateien finden:** `docker exec <container> ./explo --check-short` listet sie auf; `--check-short --move-short` verschiebt sie nach `<Playlistordner>/.explo-rejected/`
+(nichts wird gelöscht), der nächste Lauf lädt sie neu. Für ein weiteres Profil: `docker exec <container> sh -c 'cd /opt/explo && EXPLO_ISOLATED=1 WEB_DATA_PATH=/opt/explo/config/profiles/<name>/ ./explo --config /opt/explo/config/profiles/<name>/.env --check-short'`.
+Nicht getestet im echten Container: der Suchtreffer-Vorfilter über `duration_seconds` von YouTube Music.
+
 Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.

@@ -588,6 +588,12 @@ type partnerTrackData struct {
 			} `json:"profile"`
 		} `json:"items"`
 	} `json:"artists"`
+	TrackDuration struct {
+		TotalMilliseconds int `json:"totalMilliseconds"`
+	} `json:"trackDuration"`
+	Duration struct {
+		TotalMilliseconds int `json:"totalMilliseconds"`
+	} `json:"duration"`
 	AlbumOfTrack struct {
 		Name     string `json:"name"`
 		CoverArt struct {
@@ -739,6 +745,11 @@ func extractTracks(items []partnerItem) []PlaylistTrack {
 			mainArtist = artists[0]
 		}
 
+		durationMs := t.TrackDuration.TotalMilliseconds
+		if durationMs == 0 {
+			durationMs = t.Duration.TotalMilliseconds
+		}
+
 		coverURL := ""
 		if len(t.AlbumOfTrack.CoverArt.Sources) > 0 {
 			coverURL = pickBestSource(t.AlbumOfTrack.CoverArt.Sources, 300)
@@ -750,6 +761,7 @@ func extractTracks(items []partnerItem) []PlaylistTrack {
 			MainArtist: mainArtist,
 			Album:      t.AlbumOfTrack.Name,
 			CoverURL:   coverURL,
+			DurationMs: durationMs,
 		})
 	}
 	return tracks

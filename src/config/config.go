@@ -43,6 +43,8 @@ type Flags struct {
 	RefreshOnly    bool
 	CleanDownloads bool
 	KeepVersions   int
+	CheckShort     bool
+	MoveShort      bool
 }
 
 type ServerConfig struct {
@@ -129,6 +131,8 @@ type Youtube struct {
 	Filters       Filters
 	CoversDir     string
 	PathTemplate  string `env:"PATH_TEMPLATE"`
+	// DURATION_CHECK: compare a downloaded song with its real length (when known) and drop previews, shorts and album-length uploads
+	DurationCheck bool `env:"DURATION_CHECK" env-default:"true"`
 }
 
 type YoutubeMusic struct {
@@ -354,6 +358,11 @@ func (cfg *Config) GenPlaylistDetails() {
 			cfg.DownloadCfg.DownloadDir,
 			cfg.ClientCfg.PlaylistName)
 	}
+}
+
+// PlaylistFolderName is the name of a playlist's download sub folder (and of the playlist in the music app).
+func PlaylistFolderName(playlistType string) string {
+	return getPlaylistName(playlistType, "", true)
 }
 
 func getPlaylistName(playlistType, format string, replace bool) string {

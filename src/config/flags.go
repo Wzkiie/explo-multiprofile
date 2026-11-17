@@ -27,6 +27,7 @@ func (cfg *Config) GetFlags() error {
 	var refreshOnly bool
 	var cleanDownloads bool
 	var keepVersions int
+	var checkShort, moveShort bool
 	// Long flags
 	flag.StringVarP(&configPath, "config", "c", ".env", "Path of the configuration file")
 	flag.StringVarP(&playlist, "playlist", "p", "weekly-exploration", "Playlist where to get tracks. Supported: weekly-exploration, weekly-jams, daily-jams, on-repeat, fresh-releases")
@@ -39,6 +40,8 @@ func (cfg *Config) GetFlags() error {
 	flag.BoolVar(&refreshOnly, "refresh-only", false, "Trigger alibrary rescan and exit; skips discovery and downloads")
 	flag.BoolVar(&cleanDownloads, "clean-downloads", false, "Delete previously downloaded tracks before downloading new ones (requires USE_SUBDIRECTORY)")
 	flag.IntVar(&keepVersions, "keep-versions", 0, "With --replace-playlist=false: keep only the newest N dated copies of a playlist (0 = keep all)")
+	flag.BoolVar(&checkShort, "check-short", false, "Measure already downloaded songs against their real length and report the ones that are far too short or too long (needs durations in the playlist cache)")
+	flag.BoolVar(&moveShort, "move-short", false, "With --check-short: move the wrong files to <download dir>/.explo-rejected/ so the next run downloads them again")
 
 	flag.Parse()
 
@@ -74,6 +77,8 @@ func (cfg *Config) GetFlags() error {
 	cfg.Flags.RefreshOnly = refreshOnly
 	cfg.Flags.CleanDownloads = cleanDownloads
 	cfg.Flags.KeepVersions = keepVersions
+	cfg.Flags.CheckShort = checkShort
+	cfg.Flags.MoveShort = moveShort
 
 	// for deprecation purposes (can be removed at a later date)
 	cfg.Flags.PersistSet = persistSet

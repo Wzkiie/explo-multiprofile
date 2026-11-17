@@ -38,6 +38,8 @@ func loadCustomTracks(dataDir, playlistID string) ([]*models.Track, string, erro
 		CoverURL   string `json:"coverUrl"`
 		CoverPath          string `json:"coverPath"`
 		MusicBrainzTrackID string `json:"mbTrackId,omitempty"`
+		DurationMs         int    `json:"durationMs,omitempty"`
+		DurationMsAlt      int    `json:"duration_ms,omitempty"` // older caches written by other tools
 	}
 	type cacheFile struct {
 		Tracks []cachedTrack `json:"tracks"`
@@ -85,6 +87,7 @@ func loadCustomTracks(dataDir, playlistID string) ([]*models.Track, string, erro
 			CoverURL:   t.CoverURL,
 			CoverPath:          t.CoverPath,
 			MusicBrainzTrackID: t.MusicBrainzTrackID,
+			Duration:           max(t.DurationMs, t.DurationMsAlt),
 		}
 	}
 	return tracks, name, nil
@@ -156,6 +159,11 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("library refresh triggered")
+		return
+	}
+
+	if cfg.Flags.CheckShort {
+		checkShortFiles(&cfg)
 		return
 	}
 
@@ -331,4 +339,53 @@ func uploadCustomPlaylistArtwork(cfg *config.Config, c *client.Client) {
 		return
 	}
 	slog.Info("custom-playlists: playlist artwork uploaded", "id", cp.ID, "system", cfg.System)
+}
+
+// checkShortFiles measures the downloaded songs of every playlist cache of this profile that has a known
+// real length (see downloader.ScanShortFiles). Songs live in <download dir>/<playlist name>/ (also dated variants).
+func checkShortFiles(cfg *config.Config) {
+	root := cfg.DownloadCfg.DownloadDir
+	if cfg.DownloadCfg.UseSubDir {
+		root = filepath.Dir(filepath.Clean(root)) // GenPlaylistDetails appended one sub folder
+	}
+	files, _ := filepath.Glob(filepath.Join(cfg.ServerCfg.WebDataDir, "cache", "*.json"))
+	var total downloader.ScanResult
+	withLength := 0
+	for _, f := range files {
+		id := strings.TrimSuffix(filepath.Base(f), ".json")
+		tracks, _, err := loadCustomTracks(cfg.ServerCfg.WebDataDir, id)
+		if err != nil {
+			continue
+		}
+		known := 0
+		for _, t := range tracks {
+			if t.Duration > 0 {
+				known++
+			}
+		}
+		if known == 0 {
+			continue
+		}
+		withLength += known
+		dirs := []string{root}
+		if cfg.DownloadCfg.UseSubDir {
+			dirs, _ = filepath.Glob(filepath.Join(root, config.PlaylistFolderName(id)+"*"))
+		}
+		for _, dir := range dirs {
+			dc := cfg.DownloadCfg
+			dc.DownloadDir = dir
+			r := downloader.ScanShortFiles(&dc, tracks, cfg.Flags.MoveShort)
+			total.Checked += r.Checked
+			total.Wrong += r.Wrong
+			total.Moved += r.Moved
+			total.Missing += r.Missing
+		}
+	}
+	slog.Info(fmt.Sprintf("%d files checked, %d with a wrong length, %d moved to .explo-rejected, %d not found at the expected place", total.Checked, total.Wrong, total.Moved, total.Missing), "songs_with_known_length", withLength)
+	if total.Wrong > 0 && !cfg.Flags.MoveShort {
+		slog.Info("run again with --move-short to move them out of the way (nothing is deleted); the next playlist run downloads them again")
+	}
+	if withLength == 0 {
+		slog.Warn("no song has a known length yet: run each playlist once (or refresh it) so the lengths get stored, then check again")
+	}
 }

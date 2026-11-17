@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"sync/atomic"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,9 +41,23 @@ type Item struct {
 }
 
 type YTMusicSearchResult struct {
-	VideoID  string `json:"videoId"`
-	Title    string `json:"title"`
+	VideoID         string `json:"videoId"`
+	Title           string `json:"title"`
+	DurationSeconds int    `json:"duration_seconds"`
 }
+
+// A downloaded song counts as wrong when it is shorter than 60% or longer than 200% of the real length.
+const (
+	minLengthRatio = 0.6
+	maxLengthRatio = 2.0
+	maxExtraTries  = 2 // further search results to try after a wrong-length download
+)
+
+// counters for the summary line of one run
+var (
+	durChecked  atomic.Int64
+	durRejected atomic.Int64
+)
 
 type Youtube struct {
 	DownloadDir string
@@ -123,43 +138,107 @@ func (c *Youtube) queryYTMusic(track *models.Track, query string) error {
 		return fmt.Errorf("no YouTube Music track found for: %s", query)
 	}
 
-	id, err := c.filterYTMusic(*track, results)
+	id, alts, err := c.filterYTMusic(*track, results)
 	if err != nil {
 		return err
 	}
 
 	track.ID = id
+	track.AltIDs = alts
 	//log.Printf("Matched track %s => videoId %s", query, track.ID) keeping this until I improve logging (good trace)
 
 	return nil
 }
 
-func (c *Youtube) filterYTMusic(track models.Track, results []YTMusicSearchResult) (string, error) {
+// filterYTMusic returns the best result and up to maxExtraTries alternatives. When the real length of the
+// song is known, results whose length is far off are skipped before anything is downloaded.
+func (c *Youtube) filterYTMusic(track models.Track, results []YTMusicSearchResult) (string, []string, error) {
+	var ids []string
 	for _, video := range results {
 		if video.VideoID == "" {
 			continue
 		}
-        if ContainsKeyword(track, video.Title, c.Cfg.Filters.FilterList) {
-            continue
-        }
-
-        return video.VideoID, nil
-    }
-
-	return "", fmt.Errorf("no suitable YouTube Music result found")
+		if ContainsKeyword(track, video.Title, c.Cfg.Filters.FilterList) {
+			continue
+		}
+		if c.Cfg.DurationCheck && track.Duration > 0 && video.DurationSeconds > 0 &&
+			!util.DurationRatioOK(track.Duration, video.DurationSeconds*1000, minLengthRatio, maxLengthRatio) {
+			slog.Debug("skipping search result with a wrong length", "title", video.Title, "seconds", video.DurationSeconds, "expected_seconds", track.Duration/1000)
+			continue
+		}
+		ids = append(ids, video.VideoID)
+		if len(ids) > maxExtraTries {
+			break
+		}
+	}
+	if len(ids) == 0 {
+		return "", nil, fmt.Errorf("no suitable YouTube Music result found")
+	}
+	return ids[0], ids[1:], nil
 }
 
 func (c *Youtube) GetTrack(track *models.Track) error {
 	ctx := context.Background() // ctx for yt-dlp
 
 	track.File = fmt.Sprintf("%s.%s", getFilename(track.Title, track.Artist), c.Cfg.FileExtension)
-	track.Present = fetchAndSaveVideo(ctx, *c, track)
+	check := c.Cfg.DurationCheck && track.Duration > 0
 
-	if track.Present {
-		slog.Info("download finished", "service", "youtube", "track", track.File)
-		return nil
+	for {
+		track.Present = fetchAndSaveVideo(ctx, *c, track)
+
+		wrong := false
+		if track.Present && check {
+			durChecked.Add(1)
+			wrong = c.wrongLength(track)
+		}
+		if track.Present && !wrong {
+			slog.Info("download finished", "service", "youtube", "track", track.File)
+			return nil
+		}
+
+		// failed download or wrong length: try the next search result
+		if len(track.AltIDs) > 0 {
+			track.ID, track.AltIDs = track.AltIDs[0], track.AltIDs[1:]
+			continue
+		}
+		if wrong {
+			return fmt.Errorf("skipped %s - %s: no download with the right length found", track.Title, track.Artist)
+		}
+		return fmt.Errorf("failed to download track: %s - %s", track.Title, track.Artist)
 	}
-	return fmt.Errorf("failed to download track: %s - %s", track.Title, track.Artist)
+}
+
+// wrongLength measures the file that was just saved. A file that is far too short or too long
+// (preview, short, album upload) is deleted and track.Present is reset; true is returned.
+func (c *Youtube) wrongLength(track *models.Track) bool {
+	path, err := outputPathFor(*c, track)
+	if err != nil {
+		return false
+	}
+	got, err := util.ProbeDurationMs(c.Cfg.FfmpegPath, path)
+	if err != nil {
+		slog.Debug("could not measure the length, keeping the file", "track", track.File, "err", err.Error())
+		return false
+	}
+	if util.DurationRatioOK(track.Duration, got, minLengthRatio, maxLengthRatio) {
+		return false
+	}
+	slog.Warn(fmt.Sprintf("wrong length: %ds instead of %ds for %s - %s", got/1000, track.Duration/1000, track.Title, track.Artist), "service", "youtube")
+	if err := os.Remove(path); err != nil {
+		slog.Warn("could not delete the wrong file", "path", path, "err", err.Error())
+	}
+	durRejected.Add(1)
+	track.Present = false
+	return true
+}
+
+// DurationSummary is logged once per run; it reports how many downloads were checked and rejected.
+func DurationSummary() {
+	if n := durChecked.Swap(0); n > 0 {
+		slog.Info(fmt.Sprintf("%d downloads checked, %d with a wrong length thrown away", n, durRejected.Swap(0)), "service", "youtube")
+	} else {
+		durRejected.Store(0)
+	}
 }
 
 func (c *Youtube) MonitorDownloads(track []*models.Track) error { // No need to monitor yt-dlp downloads, there is no queue for them
@@ -232,18 +311,10 @@ func saveVideo(c Youtube, track *models.Track, stream *goutubedl.DownloadResult)
 
 	metadata := util.BuildffmpegMetadata(*track)
 
-	outputPath := filepath.Join(c.DownloadDir, track.File)
-
-	if c.Cfg.PathTemplate != "" {
-		relativePath, err := buildTrackPath(c.Cfg.PathTemplate, track) 
-		if err != nil {
-			slog.Error("invalid path template", "err", err)
-			return false
-		}
-			outputPath = filepath.Join(
-				c.DownloadDir,
-				relativePath,
-			)
+	outputPath, err := outputPathFor(c, track)
+	if err != nil {
+		slog.Error("invalid path template", "err", err)
+		return false
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
@@ -326,4 +397,16 @@ func (c *Youtube) Cleanup(track models.Track, ID string) error {
 func (c *Youtube) MoveDownload(srcDir, destDir, trackPath string, track *models.Track) error {
 
 	return nil
+}
+
+// outputPathFor is where a finished download of the track is stored (respects PATH_TEMPLATE).
+func outputPathFor(c Youtube, track *models.Track) (string, error) {
+	if c.Cfg.PathTemplate == "" {
+		return filepath.Join(c.DownloadDir, track.File), nil
+	}
+	relativePath, err := buildTrackPath(c.Cfg.PathTemplate, track)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(c.DownloadDir, relativePath), nil
 }

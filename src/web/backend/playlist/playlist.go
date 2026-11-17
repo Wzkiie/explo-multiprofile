@@ -33,6 +33,7 @@ type PlaylistTrack struct {
 	Album      string
 	CoverURL           string
 	MusicBrainzTrackID string
+	DurationMs         int // track length from the source (0 = unknown)
 }
 
 
@@ -113,6 +114,7 @@ func WritePlaylistCache(cfgPath, playlist string, tracks []*models.Track, added 
 		CoverURL  string `json:"coverUrl,omitempty"`
 		CoverPath string `json:"coverPath,omitempty"`
 		InLibrary *bool  `json:"inLibrary,omitempty"`
+		DurationMs int   `json:"durationMs,omitempty"`
 	}
 	type cache struct {
 		Tracks []cachedTrack `json:"tracks"`
@@ -141,6 +143,7 @@ func WritePlaylistCache(cfgPath, playlist string, tracks []*models.Track, added 
 			CoverURL:  t.CoverURL,
 			CoverPath: t.CoverPath,
 			InLibrary: inLibrary,
+			DurationMs: t.Duration,
 		}
 	}
 
@@ -183,6 +186,7 @@ type cachedPrefetchTrack struct {
 	CoverURL   string `json:"coverUrl,omitempty"`
 	CoverPath          string `json:"coverPath,omitempty"`
 	MusicBrainzTrackID string `json:"mbTrackId,omitempty"`
+	DurationMs         int    `json:"durationMs,omitempty"` // real length from the source, used to reject wrong downloads
 }
 
 // writePreliminaryCache writes the track cache with remote cover URLs immediately.
@@ -190,7 +194,7 @@ type cachedPrefetchTrack struct {
 func writePreliminaryCache(cfgDir, playlistType string, tracks []PlaylistTrack) bool {
 	ct := make([]cachedPrefetchTrack, len(tracks))
 	for i, t := range tracks {
-		ct[i] = cachedPrefetchTrack{Rank: i + 1, Title: t.Title, Artist: t.Artist, MainArtist: t.MainArtist, Release: t.Album, CoverURL: t.CoverURL, MusicBrainzTrackID: t.MusicBrainzTrackID}
+		ct[i] = cachedPrefetchTrack{Rank: i + 1, Title: t.Title, Artist: t.Artist, MainArtist: t.MainArtist, Release: t.Album, CoverURL: t.CoverURL, MusicBrainzTrackID: t.MusicBrainzTrackID, DurationMs: t.DurationMs}
 	}
 	if !writeTrackCache(cfgDir, playlistType, ct) {
 		return false

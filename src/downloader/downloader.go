@@ -124,6 +124,7 @@ func (c *DownloadClient) StartDownload(tracks *[]*models.Track) error {
 		}
 	}
 
+	DurationSummary()
 	filterLocalTracks(tracks, false)
 	return nil
 }

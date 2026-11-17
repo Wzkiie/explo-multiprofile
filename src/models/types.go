@@ -26,6 +26,7 @@ type Track struct {
 	OriginalDate              string
 	OriginalYear              int
 	Genres                    string
+	AltIDs                    []string // further YouTube video IDs to try if the first download has the wrong length
 	ISRCs                     []string
 	Media                     string // Media format (e.g., CD, Digital Media)
 	TrackNumber               int    // Track position in media
