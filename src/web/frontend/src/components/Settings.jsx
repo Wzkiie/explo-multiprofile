@@ -354,7 +354,7 @@ function PlaylistHandling() {
           <select value={keepN} onChange={e => changeKeep(e.target.value)}
             className="bg-transparent border border-ui-border rounded-[6px] text-white text-[12px] px-2 py-1">
             <option value="0">all of them</option>
-            {[2, 3, 5, 7, 14, 30].map(n => <option key={n} value={n}>newest {n}</option>)}
+            {[...new Set([1, 2, 3, 5, 7, 14, 30, parseInt(keepN, 10) || 0])].filter(n => n > 0).sort((x, y) => x - y).map(n => <option key={n} value={n}>newest {n}</option>)}
           </select>
           <span>older dated copies are deleted automatically (Navidrome/Subsonic only).</span>
         </div>
