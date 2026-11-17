@@ -15,7 +15,7 @@ import {
   fetchConfig, fetchConfigRaw, saveConfig, resetConfig,
   saveSchedule, startRun, stopRun, fetchRunStatus, fetchLogs,
   fetchCustomPlaylists, deleteCustomPlaylist, savePathTemplate, saveEnrichMetadata,
-  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount, spotifyCookiePresent, saveSpotifyCookie, deleteSpotifyCookie,
+  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount, spotifyCookiePresent, saveSpotifyCookie, deleteSpotifyCookie, setPlaylistPublic,
   cookiesPresent, uploadCookies, deleteCookies,
   renameProfile, deleteProfile, restartNeeded, restartNow,
   fetchPathTemplatePresets, addPathTemplatePreset, deletePathTemplatePreset,
@@ -174,6 +174,8 @@ function CustomPlaylistsSection({
                 tracklistOpen={openTracklist === cp.id}
                 onTracklistToggle={() => setOpenTracklist(v => v === cp.id ? null : cp.id)}
                 sourceUrl={cp.source_url || undefined}
+                isPublic={!!cp.public}
+                onPublicToggle={(v) => setPlaylistPublic(cp.id, v)}
                 onDelete={(opts) => onDelete(cp.id, opts)}
                 refreshTick={refreshTick}
               />

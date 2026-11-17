@@ -385,11 +385,14 @@ export function PlaylistCard({
   onDelete,
   replacePlaylist = true,
   onReplaceToggle,
+  isPublic = false,
+  onPublicToggle,
   trackId,
   artworkUrl,
   sourceUrl,
   refreshTick = 0,
 }) {
+  const [pubOn, setPubOn] = useState(!!isPublic)
   const { value, name } = playlist
   // trackFetchId: use real playlist ID (custom playlists) if provided, else fall back to value
   const trackFetchId = trackId ?? value
@@ -744,6 +747,29 @@ export function PlaylistCard({
           >
             Remove cover
           </button>
+          )}
+          {onPublicToggle && (
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                const next = !pubOn
+                setPubOn(next)
+                Promise.resolve(onPublicToggle(next)).catch(() => setPubOn(!next))
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                width: '100%', textAlign: 'left',
+                background: 'none', border: 'none',
+                padding: '8px 14px', fontSize: 13, color: '#c0c0c0',
+                cursor: 'pointer', gap: 10,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+              title="Everyone on the music server can see and play this playlist (applies from the next run)"
+            >
+              <span>Visible to everyone</span>
+              <Toggle checked={pubOn} onChange={() => {}} tiny />
+            </button>
           )}
           {onReplaceToggle && (
             <div style={{ display: 'flex', flexDirection: 'column' }}>

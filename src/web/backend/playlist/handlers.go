@@ -59,6 +59,7 @@ func (p *Playlist) HandleImportCustomPlaylist(w http.ResponseWriter, r *http.Req
 		URL         string `json:"url"`
 		Source      string `json:"source"` // "listenbrainz" | "apple_music"
 		RefreshDays int    `json:"refresh_days"`
+		Public      bool   `json:"public"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -156,6 +157,7 @@ func (p *Playlist) HandleImportCustomPlaylist(w http.ResponseWriter, r *http.Req
 		LBMBID:      lbMBID,     // empty for apple_music
 		ArtworkURL:  artworkURL, // empty for listenbrainz
 		RefreshDays: body.RefreshDays,
+		Public:      body.Public,
 		ColorIndex:  len(existing),
 		LastFetched: time.Now().UTC(),
 	}
@@ -435,4 +437,30 @@ func (p *Playlist) HandleBackgroundArt(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]string{"url": url}); err != nil {
 		slog.Error("background-art: failed to write response", "err", err.Error())
 	}
+}
+
+// HandleSetPublic: POST /api/ui/custom-playlists/{id}/public {"public": true|false}
+// Makes the playlist visible to every user of the music server (applied on the next run).
+func (p *Playlist) HandleSetPublic(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Public bool `json:"public"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	all := loadCustomPlaylists(p.cfg.WebDataDir)
+	for i := range all {
+		if all[i].ID == id {
+			all[i].Public = body.Public
+			if err := saveCustomPlaylists(p.cfg.WebDataDir, all); err != nil {
+				http.Error(w, "failed to save", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+	http.Error(w, "playlist not found", http.StatusNotFound)
 }

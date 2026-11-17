@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { importCustomPlaylist, uploadCover } from '../../lib/api'
+import { importCustomPlaylist, uploadCover, fetchProfiles, fetchProfileLabels, getProfile } from '../../lib/api'
 import listenbrainzIcon from '../../assets/listenbrainz.svg'
 import appleMusicIcon from '../../assets/apple-music.svg'
 import spotifyIcon from '../../assets/spotify.svg'
@@ -79,6 +79,11 @@ function SuccessPanel({ result, onImported, onSync, onClose, onError }) {
           <p className="text-[11px] text-muted mt-1">
             {result.track_count} track{result.track_count !== 1 ? 's' : ''} imported
           </p>
+          {result.also && Object.keys(result.also).length > 0 && (
+            <p className="text-[11px] text-muted mt-1">
+              Also added for: {Object.entries(result.also).map(([n, st]) => `${n} ${st === 'ok' ? '✓' : `✗ (${st})`}`).join(', ')}
+            </p>
+          )}
           {result.coverError && (
             <p className="text-[11px] text-danger mt-1">Cover not saved: {result.coverError}. You can add it later in the playlist’s ⋮ menu.</p>
           )}
@@ -135,6 +140,19 @@ export function ImportModal({ onClose, onImported, onSync }) {
   const [result, setResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [coverFile, setCoverFile] = useState(null)
+  const [profiles, setProfiles] = useState([])      // all profiles
+  const [labels, setLabels] = useState({})
+  const [onlyMe, setOnlyMe] = useState(true)        // "playlist only for you?" yes by default
+  const [others, setOthers] = useState([])          // other profiles that get the playlist too
+  const [isPublic, setIsPublic] = useState(false)   // visible to everyone on the music server
+  const me = getProfile()
+  const labelOf = (n) => labels[n] || n
+  const otherProfiles = profiles.filter(n => n !== me)
+
+  useEffect(() => {
+    fetchProfiles().then(setProfiles).catch(() => {})
+    fetchProfileLabels().then(setLabels).catch(() => {})
+  }, [])
 
   const sourceCfg = SOURCES.find(s => s.key === source)
 
@@ -142,7 +160,7 @@ export function ImportModal({ onClose, onImported, onSync }) {
     if (!url.trim() || loading) return
     setLoading(true)
     try {
-      const data = await importCustomPlaylist(url.trim(), source, refreshDays)
+      const data = await importCustomPlaylist(url.trim(), source, refreshDays, { profiles: onlyMe ? [] : others, isPublic })
       let coverError = ''
       if (coverFile) {
         try { await uploadCover(data.id, coverFile) } catch (e) { coverError = e.message || 'cover upload failed' }
@@ -305,6 +323,41 @@ export function ImportModal({ onClose, onImported, onSync }) {
                     ))}
                   </select>
                 </div>
+
+                {otherProfiles.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[12px] font-medium text-muted">
+                      Is this playlist only for you ({labelOf(me)})?
+                    </label>
+                    <div className="flex gap-2">
+                      {[[true, 'Yes, only for me'], [false, 'No, for others too']].map(([v, text]) => (
+                        <button key={text} type="button" disabled={loading}
+                          onClick={() => setOnlyMe(v)}
+                          className={`rounded-full px-3.5 py-1 text-[12px] border cursor-pointer bg-transparent transition-colors ${onlyMe === v ? 'border-[var(--brand)] text-white' : 'border-ui-border text-muted hover:text-white'}`}>
+                          {text}
+                        </button>
+                      ))}
+                    </div>
+                    {!onlyMe && (
+                      <div className="rounded-lg border border-ui-border p-2.5 flex flex-col gap-1.5">
+                        <span className="text-[11px] text-muted">Also add it to (each user gets their own copy in their own account):</span>
+                        {otherProfiles.map(n => (
+                          <label key={n} className="flex items-center gap-2 text-[13px] text-white cursor-pointer">
+                            <input type="checkbox" checked={others.includes(n)} disabled={loading}
+                              onChange={e => setOthers(prev => e.target.checked ? [...prev, n] : prev.filter(x => x !== n))} />
+                            {labelOf(n)}
+                          </label>
+                        ))}
+                        <span className="text-[11px] text-muted">Personal Spotify playlists (Blend, Daily Mix) are read with each user’s own Spotify cookie.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <label className="flex items-center gap-2 text-[13px] text-white cursor-pointer">
+                  <input type="checkbox" checked={isPublic} disabled={loading} onChange={e => setIsPublic(e.target.checked)} />
+                  Visible to everyone on the music server
+                </label>
 
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[12px] font-medium text-muted">

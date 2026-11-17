@@ -25,6 +25,7 @@ type CustomPlaylist struct {
 	LBMBID          string    `json:"lb_mbid,omitempty"`          // ListenBrainz MBID (backward compat)
 	ArtworkURL      string    `json:"artwork_url,omitempty"`      // playlist cover image (Apple Music)
 	ArtworkUploaded bool      `json:"artwork_uploaded,omitempty"` // true after artwork has been pushed to the music app
+	Public          bool      `json:"public,omitempty"` // visible to every user of the music server
 	RefreshDays     int       `json:"refresh_days"`
 	ColorIndex      int       `json:"color_index"`
 	LastFetched     time.Time `json:"last_fetched"`

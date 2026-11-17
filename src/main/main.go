@@ -195,6 +195,9 @@ func main() {
 				playlistName = cfg.Flags.Playlist
 			}
 			cfg.ClientCfg.PlaylistName = playlistName
+			if cp := playlist.GetCustomPlaylist(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist); cp != nil && cp.Public {
+				cfg.ClientCfg.PublicPlaylist = true // visible to everyone, whatever the global setting says
+			}
 			if !cfg.ReplacePlaylist {
 				// keep-every-version mode: dated name, otherwise identical names pile up
 				cfg.ClientCfg.PlaylistName = fmt.Sprintf("%s-%s", playlistName, time.Now().Format("2006-01-02"))

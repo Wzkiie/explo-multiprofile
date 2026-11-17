@@ -87,7 +87,8 @@ func (s *Server) registerPlaylistRoutes() {
 
 	// custom playlists: GET list, POST import (same path); per-ID actions under prefix
 	s.mux.Handle("GET /api/ui/custom-playlists", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleGetCustomPlaylists(w, r) })))
-	s.mux.Handle("POST /api/ui/custom-playlists", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleImportCustomPlaylist(w, r) })))
+	s.mux.Handle("POST /api/ui/custom-playlists", s.auth(http.HandlerFunc(s.handleImportCustomPlaylist)))
+	s.mux.Handle("POST /api/ui/custom-playlists/{id}/public", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleSetPublic(w, r) })))
 
 	// ID-specific routes: DELETE /api/ui/custom-playlists/{id} and POST .../{id}/refresh
 	s.mux.Handle("POST /api/ui/custom-playlists/{id}/refresh", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleRefreshCustomPlaylist(w, r) })))

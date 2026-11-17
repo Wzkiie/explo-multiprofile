@@ -212,11 +212,11 @@ export async function fetchCustomPlaylists() {
   return res.json()
 }
 
-export async function importCustomPlaylist(url, source, refresh_days) {
+export async function importCustomPlaylist(url, source, refresh_days, { profiles = [], isPublic = false } = {}) {
   const res = await apiFetch('/api/ui/custom-playlists', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, source, refresh_days }),
+    body: JSON.stringify({ url, source, refresh_days, profiles, public: isPublic }),
   })
   if (res.status === 409) throw Object.assign(new Error('already imported'), { duplicate: true })
   if (!res.ok) throw new Error(await res.text())
@@ -461,4 +461,13 @@ export async function saveSpotifyCookie({ file, value }) {
 export async function deleteSpotifyCookie() {
   const res = await apiFetch('/api/ui/spotify-cookie', { method: 'DELETE' })
   if (!res.ok) throw new Error((await res.text()).trim() || 'could not remove the cookie')
+}
+
+export async function setPlaylistPublic(id, isPublic) {
+  const res = await apiFetch(`/api/ui/custom-playlists/${encodeURIComponent(id)}/public`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ public: isPublic }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'could not change visibility')
 }

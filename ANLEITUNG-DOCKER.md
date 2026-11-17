@@ -195,4 +195,8 @@ die `cookies.txt` (Netscape-Format, exportiert auf open.spotify.com) hochladen o
 `spotify-cookie` (0600) im Profilordner, nie in der `.env`. Es hält in der Regel viele Monate, danach neu hochladen. Ohne Cookie sehen Blend-Links „has no tracks".
 Ungetestet mit einem echten Konto: bitte mit einer Blend-Playlist prüfen.
 
+**Playlist für mehrere Nutzer / für alle sichtbar:** Im Import-Fenster fragt Explo „Is this playlist only for you?". Bei „No, for others too" erscheinen die anderen Profile zum Ankreuzen;
+jedes bekommt eine eigene Kopie in seinem eigenen Konto (bei Spotify mit dem eigenen Cookie). „Visible to everyone on the music server" macht die Playlist in Navidrome/Jellyfin öffentlich
+(auch nachträglich im ⋮-Menü einer eigenen Playlist; gilt ab dem nächsten Lauf). Das Cover wird nur für das aktuelle Profil mit hochgeladen.
+
 Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.
