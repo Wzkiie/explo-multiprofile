@@ -251,7 +251,7 @@ func (cfg *Config) ReadEnv() {
 
 func (cfg *Config) CommonFixes() {
 	cfg.DownloadCfg.Youtube.FileExtension = strings.TrimPrefix(cfg.DownloadCfg.Youtube.FileExtension, ".")
-	cfg.DownloadCfg.Youtube.CoversDir = filepath.Join(filepath.Dir(cfg.ServerCfg.WebDataDir), "cache", "covers")
+	cfg.DownloadCfg.Youtube.CoversDir = filepath.Join(filepath.Clean(cfg.ServerCfg.WebDataDir), "cache", "covers")
 	cfg.ClientCfg.URL = fixBaseURL(cfg.ClientCfg.URL)
 	cfg.DownloadCfg.Slskd.URL = fixBaseURL(cfg.DownloadCfg.Slskd.URL)
 	cfg.DownloadCfg.Lidarr.URL = fixBaseURL(cfg.DownloadCfg.Lidarr.URL)

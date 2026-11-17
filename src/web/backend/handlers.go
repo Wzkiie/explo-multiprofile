@@ -10,8 +10,8 @@ import (
 )
 
 // handleGetLog returns the contents of the rolling log file.
-func (s *Server) handleGetLog(w http.ResponseWriter, r *http.Request) {
-	data, err := os.ReadFile(s.manualRun.LogPath())
+func (s *Server) handleGetLog(p *profile, w http.ResponseWriter, r *http.Request) {
+	data, err := os.ReadFile(p.run.LogPath())
 	if err != nil && !os.IsNotExist(err) {
 		http.Error(w, "failed to read log", http.StatusInternalServerError)
 		return

@@ -61,15 +61,16 @@ func NewDownloader(cfg *cfg.DownloadConfig, httpClient *util.HttpClient, filterL
 		Downloaders: downloader}, nil
 }
 
-func (c *DownloadClient) StartDownload(tracks *[]*models.Track) {
+// StartDownload downloads the missing tracks. It returns an error when downloading cannot even start
+// (e.g. the download folder is not writable), so the caller can stop instead of building a half playlist.
+func (c *DownloadClient) StartDownload(tracks *[]*models.Track) error {
 	if c.Cfg.ExcludeLocal { // remove locally found tracks, so they can't be added to playlist
 		filterLocalTracks(tracks, true)
 	}
 
 	if c.needsDownloadDir() {
 		if err := os.MkdirAll(c.Cfg.DownloadDir, 0755); err != nil {
-			slog.Error(err.Error())
-			return
+			return fmt.Errorf("download folder %q is not usable (check DOWNLOAD_DIR / the volume mapping): %w", c.Cfg.DownloadDir, err)
 		}
 	}
 
@@ -113,7 +114,7 @@ func (c *DownloadClient) StartDownload(tracks *[]*models.Track) {
 
 		if err := g.Wait(); err != nil {
 			slog.Warn(err.Error())
-			return
+			return nil
 		}
 
 		if m, ok := d.(Monitor); ok {
@@ -124,6 +125,7 @@ func (c *DownloadClient) StartDownload(tracks *[]*models.Track) {
 	}
 
 	filterLocalTracks(tracks, false)
+	return nil
 }
 func (c *DownloadClient) needsDownloadDir() bool {
 	for _, svc := range c.Cfg.Services {

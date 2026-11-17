@@ -3,7 +3,6 @@ package util
 import (
 	"strings"
 	"os/exec"
-	"os"
 	"log/slog"
 
 	"explo/src/web/backend/app"
@@ -33,13 +32,7 @@ func CustomEnvPrefix(name string) string {
 func TriggerLibraryRefresh(cfg app.Config) {
 	go func() {
 		cmd := exec.Command(cfg.ExploPath, "--refresh-only", "--config", cfg.WebEnvPath)
-		env := make([]string, 0, len(os.Environ()))
-		for _, e := range os.Environ() {
-			if !strings.HasPrefix(e, "WEB_UI=") {
-				env = append(env, e)
-			}
-		}
-		cmd.Env = env
+		cmd.Env = cfg.ChildEnv()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			slog.Warn("library refresh failed", "err", err.Error(), "output", string(out))

@@ -45,56 +45,69 @@ func (s *Server) registerAuthRoutes() {
 }
 
 func (s *Server) registerSettingRoutes() {
-	s.mux.Handle("GET /api/ui/config", s.auth(s.settings.HandleGetConfig))
-	s.mux.Handle("POST /api/ui/config", s.auth(s.settings.HandleSaveConfig))
+	s.mux.Handle("GET /api/ui/config", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleGetConfig(w, r) })))
+	s.mux.Handle("POST /api/ui/config", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveConfig(w, r) })))
 
-	s.mux.Handle("GET /api/ui/config/raw", s.auth(s.settings.HandleGetConfigRaw))
-	s.mux.Handle("POST /api/ui/config/reset", s.auth(s.settings.HandleResetConfig))
-	s.mux.Handle("POST /api/ui/config/schedules", s.auth(s.settings.HandleSaveSchedule))
-	s.mux.Handle("POST /api/ui/config/path-template", s.auth(s.settings.HandleSavePathTemplate))
-	s.mux.Handle("POST /api/ui/config/enrich-metadata", s.auth(s.settings.HandleSaveEnrichMetadata))
-	s.mux.Handle("POST /api/ui/config/replace-playlist", s.auth(s.settings.HandleSaveReplacePlaylist))
-	s.mux.Handle("POST /api/ui/config/clean-downloads", s.auth(s.settings.HandleSaveCleanDownloads))
-	s.mux.Handle("POST /api/ui/config/suffix-removal", s.auth(s.settings.HandleSaveSuffixRemoval))
+	s.mux.Handle("POST /api/ui/config/keys", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveKeys(w, r) })))
+	s.mux.Handle("GET /api/ui/cookies", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleCookiesStatus(w, r) })))
+	s.mux.Handle("POST /api/ui/cookies", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleUploadCookies(w, r) })))
+	s.mux.Handle("DELETE /api/ui/cookies", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleDeleteCookies(w, r) })))
+	s.mux.Handle("GET /api/ui/config/raw", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleGetConfigRaw(w, r) })))
+	s.mux.Handle("POST /api/ui/config/reset", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleResetConfig(w, r) })))
+	s.mux.Handle("POST /api/ui/config/schedules", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveSchedule(w, r) })))
+	s.mux.Handle("POST /api/ui/config/path-template", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSavePathTemplate(w, r) })))
+	s.mux.Handle("POST /api/ui/config/enrich-metadata", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveEnrichMetadata(w, r) })))
+	s.mux.Handle("POST /api/ui/config/replace-playlist", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveReplacePlaylist(w, r) })))
+	s.mux.Handle("POST /api/ui/config/clean-downloads", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveCleanDownloads(w, r) })))
+	s.mux.Handle("POST /api/ui/config/suffix-removal", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSaveSuffixRemoval(w, r) })))
 
 	// Path template presets: GET list, POST add; DELETE per name under prefix
-	s.mux.Handle("api/ui/path-templates", s.auth(s.settings.HandlePathTemplates))
-	s.mux.Handle("DELETE /api/ui/path-templates/", s.auth(s.settings.HandleDeletePathTemplate))
+	s.mux.Handle("api/ui/path-templates", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandlePathTemplates(w, r) })))
+	s.mux.Handle("DELETE /api/ui/path-templates/", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleDeletePathTemplate(w, r) })))
 
 	// Wizard steps (POST) — require auth
-	s.mux.Handle("POST /api/ui/wizard/step1", s.auth(s.settings.HandleWizardStep1))
-	s.mux.Handle("POST /api/ui/wizard/step2", s.auth(s.settings.HandleWizardStep2))
-	s.mux.Handle("POST /api/ui/wizard/step3", s.auth(s.settings.HandleWizardStep3))
+	s.mux.Handle("POST /api/ui/wizard/step1", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleWizardStep1(w, r) })))
+	s.mux.Handle("POST /api/ui/wizard/step2", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleWizardStep2(w, r) })))
+	s.mux.Handle("POST /api/ui/wizard/step3", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleWizardStep3(w, r) })))
 
 	// Public
-	s.mux.HandleFunc("GET /api/ui/setup-status", s.settings.HandleSetupStatus)
+	s.mux.HandleFunc("GET /api/ui/setup-status", s.withProfileOrDefault(func(p *profile, w http.ResponseWriter, r *http.Request) { p.settings.HandleSetupStatus(w, r) }))
 
 }
 
 func (s *Server) registerPlaylistRoutes() {
-	s.mux.Handle("GET /api/ui/playlists", s.auth(s.customPlaylist.HandleGetPlaylist))
-	s.mux.Handle("POST /api/ui/playlists/prefetch", s.auth(s.customPlaylist.HandlePrefetchCovers))
+	s.mux.Handle("GET /api/ui/playlists", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleGetPlaylist(w, r) })))
+	s.mux.Handle("POST /api/ui/playlists/{id}/cover", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleUploadCover(w, r) })))
+	s.mux.Handle("DELETE /api/ui/playlists/{id}/cover", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleDeleteCover(w, r) })))
+	s.mux.Handle("GET /api/ui/playlists/{id}/cover", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleGetCover(w, r) })))
+	s.mux.Handle("POST /api/ui/playlists/prefetch", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandlePrefetchCovers(w, r) })))
 
 	// custom playlists: GET list, POST import (same path); per-ID actions under prefix
-	s.mux.Handle("GET /api/ui/custom-playlists", s.auth(s.customPlaylist.HandleGetCustomPlaylists))
-	s.mux.Handle("POST /api/ui/custom-playlists", s.auth(s.customPlaylist.HandleImportCustomPlaylist))
+	s.mux.Handle("GET /api/ui/custom-playlists", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleGetCustomPlaylists(w, r) })))
+	s.mux.Handle("POST /api/ui/custom-playlists", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleImportCustomPlaylist(w, r) })))
 
 	// ID-specific routes: DELETE /api/ui/custom-playlists/{id} and POST .../{id}/refresh
-	s.mux.Handle("POST /api/ui/custom-playlists/{id}/refresh", s.auth(s.customPlaylist.HandleRefreshCustomPlaylist))
-	s.mux.Handle("DELETE /api/ui/custom-playlists/{id}", s.auth(s.customPlaylist.HandleDeleteCustomPlaylist))
+	s.mux.Handle("POST /api/ui/custom-playlists/{id}/refresh", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleRefreshCustomPlaylist(w, r) })))
+	s.mux.Handle("DELETE /api/ui/custom-playlists/{id}", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleDeleteCustomPlaylist(w, r) })))
 
-	s.mux.HandleFunc("GET /api/ui/background-art", s.customPlaylist.HandleBackgroundArt)
+	s.mux.HandleFunc("GET /api/ui/background-art", s.withProfileOrDefault(func(p *profile, w http.ResponseWriter, r *http.Request) { p.playlist.HandleBackgroundArt(w, r) }))
 }
 
 func (s *Server) registerRunRoutes() {
-	s.mux.Handle("POST /api/ui/run", s.auth(s.manualRun.HandleRun))
-	s.mux.Handle("GET /api/ui/run/events", s.auth(s.manualRun.HandleRunEvents))
-	s.mux.Handle("POST /api/ui/run/stop", s.auth(s.manualRun.HandleStopRun))
-	s.mux.Handle("GET /api/ui/run/status", s.auth(s.manualRun.HandleRunStatus))
+	s.mux.Handle("POST /api/ui/run", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.run.HandleRun(w, r) })))
+	s.mux.Handle("GET /api/ui/run/events", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.run.HandleRunEvents(w, r) })))
+	s.mux.Handle("POST /api/ui/run/stop", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.run.HandleStopRun(w, r) })))
+	s.mux.Handle("GET /api/ui/run/status", s.auth(s.withProfile(func(p *profile, w http.ResponseWriter, r *http.Request) { p.run.HandleRunStatus(w, r) })))
 }
 
 func (s *Server) registerMiscRoutes() {
-	s.mux.Handle("GET /api/ui/logs", s.auth(s.handleGetLog))
+	s.mux.Handle("GET /api/ui/profiles", s.auth(s.handleListProfiles))
+	s.mux.Handle("POST /api/ui/profiles", s.auth(s.handleCreateProfile))
+	s.mux.Handle("DELETE /api/ui/profiles/{name}", s.auth(s.handleDeleteProfile))
+	s.mux.Handle("POST /api/ui/profiles/{name}/rename", s.auth(s.handleRenameProfile))
+	s.mux.Handle("GET /api/ui/restart", s.auth(s.handleRestartStatus))
+	s.mux.Handle("POST /api/ui/restart", s.auth(s.handleRestart))
+	s.mux.Handle("GET /api/ui/logs", s.auth(s.withProfile(s.handleGetLog)))
 	s.mux.Handle("GET /api/ui/browse", s.auth(s.handleBrowse))
 
 	coversDir := filepath.Join(s.cfg.WebDataDir, "cache", "covers")

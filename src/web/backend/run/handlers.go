@@ -19,8 +19,8 @@ func (mr *ManualRun) HandleRun(w http.ResponseWriter, r *http.Request) {
 	args := buildArgs(r.FormValue("playlist"), r.FormValue("download_mode"), mr.cfg.WebEnvPath, replacePlaylist)
 
 	if err := mr.startRun(args); err != nil {
-		if errors.Is(err, errRunAlreadyStarted) {
-			http.Error(w, "a run is already in progress", http.StatusConflict)
+		if errors.Is(err, errRunAlreadyStarted) || errors.Is(err, errOtherRunActive) || errors.Is(err, ErrProfileClosed) {
+			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)

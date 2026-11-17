@@ -9,11 +9,10 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"syscall"
-	"time"
 
 	"explo/src/util"
 	"explo/src/web"
+	"explo/src/web/backend/app"
 	"explo/src/web/backend/defs"
 )
 
@@ -37,7 +36,7 @@ func (s *Settings) HandleGetConfig(w http.ResponseWriter, r *http.Request) {
 		if v, ok := fileValues[key]; ok && v != "" {
 			values[key] = v
 			sources[key] = "file"
-		} else if v, ok := os.LookupEnv(key); ok && v != "" {
+		} else if v, ok := os.LookupEnv(key); ok && v != "" && !s.cfg.Named { // named profiles ignore container env
 			values[key] = v
 			sources[key] = "env"
 		}
@@ -86,13 +85,11 @@ func (s *Settings) HandleResetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		if err := syscall.Kill(1, syscall.SIGTERM); err != nil {
-			slog.Warn("failed to kill process", "msg", err.Error())
-		}
-
-	}()
+	// only the default profile restarts the container; resetting another profile must not
+	// interrupt everybody else
+	if !s.cfg.Named {
+		app.TriggerRestart()
+	}
 }
 
 // handleSaveSchedule updates a single playlist's schedule in the .env file.
@@ -591,6 +588,49 @@ func (s *Settings) HandleSaveSuffixRemoval(w http.ResponseWriter, r *http.Reques
 		val = "true"
 	}
 	if err := s.UpdateEnvKeys(map[string]string{"SUFFIX_REMOVAL": val}, web.SampleEnv); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// editableKeys are the settings the structured settings form may change (a subset of AllConfigKeys;
+// schedules, flags and the wizard marker have their own endpoints).
+var editableKeys = map[string]bool{
+	"LISTENBRAINZ_USER": true, "LISTENBRAINZ_USER_TOKEN": true,
+	"EXPLO_SYSTEM": true, "SYSTEM_URL": true, "SYSTEM_USERNAME": true, "SYSTEM_PASSWORD": true,
+	"API_KEY": true, "LIBRARY_NAME": true, "PUBLIC_PLAYLIST": true,
+	"ADMIN_SYSTEM_USERNAME": true, "ADMIN_SYSTEM_PASSWORD": true, "ADMIN_API_KEY": true,
+	"DOWNLOAD_SERVICES": true, "YOUTUBE_API_KEY": true,
+	"TRACK_EXTENSION": true, "EXTENSIONS": true, "MIN_BITRATE": true,
+	"SLSKD_URL": true, "SLSKD_API_KEY": true,
+	"LIDARR_URL": true, "LIDARR_API_KEY": true, "LIDARR_ROOT_FOLDER": true,
+}
+
+// HandleSaveKeys updates individual settings: POST /api/ui/config/keys {"values": {"KEY": "value"}}.
+// An empty value removes the key from the .env file.
+func (s *Settings) HandleSaveKeys(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Values map[string]string `json:"values"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	updates := make(map[string]string, len(body.Values))
+	for k, v := range body.Values {
+		if !editableKeys[k] {
+			http.Error(w, "setting not editable here: "+k, http.StatusBadRequest)
+			return
+		}
+		v = strings.TrimSpace(v)
+		if strings.ContainsAny(v, "\r\n") {
+			http.Error(w, "line breaks are not allowed in "+k, http.StatusBadRequest)
+			return
+		}
+		updates[k] = v
+	}
+	if err := s.UpdateEnvKeys(updates, web.SampleEnv); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

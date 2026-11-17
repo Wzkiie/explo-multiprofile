@@ -14,10 +14,7 @@ import (
 	"explo/src/config"
 	"explo/src/web"
 	"explo/src/web/backend/app"
-	"explo/src/web/backend/run"
-	"explo/src/web/backend/playlist"
 	"explo/src/web/backend/jobs"
-	"explo/src/web/backend/settings"
 	"explo/src/web/backend/auth"
 )
 
@@ -32,10 +29,8 @@ type Server struct {
 	mux            *http.ServeMux
 	server         *http.Server
 	authStore      *auth.AuthStore
-	settings       *settings.Settings
+	profiles       *profileStore
 	cronJobs       *jobs.Jobs
-	manualRun      *run.ManualRun
-	customPlaylist *playlist.Playlist
 }
 
 func NewServer(cfg config.ServerConfig) *Server {
@@ -57,11 +52,8 @@ func NewServer(cfg config.ServerConfig) *Server {
 		ExploPath: cfg.ExploPath,
 	}
 
-	settings := settings.NewSettings(webCfg)
-
+	profiles := newProfileStore(webCfg)
 	cronJobs := jobs.NewJobs()
-	manualRun := run.NewManualRun(webCfg)
-	playlist := playlist.NewPlaylist(webCfg, settings)
 
 	mux := http.NewServeMux()
 	s := &Server{
@@ -72,10 +64,8 @@ func NewServer(cfg config.ServerConfig) *Server {
 			Handler: sessionManager.Handle(mux),
 		},
 		authStore:      authStore,
-		settings:       settings,
+		profiles:       profiles,
 		cronJobs:       cronJobs,
-		manualRun:      manualRun,
-		customPlaylist: playlist,
 	}
 
 	s.registerRoutes()
@@ -83,11 +73,12 @@ func NewServer(cfg config.ServerConfig) *Server {
 }
 
 func (s *Server) Start() error {
-	s.manualRun.InitServerLog()
+	def, _ := s.profiles.get(DefaultProfile)
+	def.run.InitServerLog()
 	s.startJobs()
 	coversDir := filepath.Join(s.cfg.WebDataDir, "cache", "covers")
 	if _, err := os.Stat(coversDir); os.IsNotExist(err) {
-		s.customPlaylist.PrefetchCovers()
+		def.playlist.PrefetchCovers()
 	}
 	if s.authStore.Disabled {
 		slog.Warn("web UI authentication is DISABLED - UI_USERNAME and UI_PASSWORD are not set; anyone who can reach this address has full control over Explo")
@@ -152,8 +143,8 @@ func (s *Server) startJobs() {
 		slog.Warn("failed to register cover cleanup job", "err", err.Error())
 	}
 
-	if err := s.customPlaylist.RegisterCustomPlaylistRefresh(s.cronJobs); err != nil {
-		slog.Warn("failed to register custom playlist refresh job", "err", err.Error())
+	for _, p := range s.profiles.all() {
+		s.registerProfileJobs(p)
 	}
 
 	s.cronJobs.Start()
@@ -171,4 +162,16 @@ func spaFS() (fs.FS, []byte) {
 	embedded, _ := fs.Sub(web.DistFiles, "dist")
 	index, _ := fs.ReadFile(embedded, "index.html")
 	return embedded, index
+}
+
+// registerProfileJobs registers the per-profile scheduled jobs (custom playlist cache refresh).
+func (s *Server) registerProfileJobs(p *profile) {
+	if err := p.playlist.RegisterCustomPlaylistRefresh(s.cronJobs); err != nil {
+		slog.Warn("failed to register custom playlist refresh job", "profile", p.cfg.Profile, "err", err.Error())
+	}
+}
+
+// unregisterProfileJobs removes the scheduled jobs of a profile that was deleted or renamed.
+func (s *Server) unregisterProfileJobs(name string) {
+	s.cronJobs.Scheduler.RemoveByTags("profile:" + name)
 }

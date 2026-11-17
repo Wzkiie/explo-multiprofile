@@ -7,6 +7,7 @@ import (
 	"explo/src/web/backend"
 	"explo/src/web/backend/playlist"
 	"fmt"
+	"time"
 	"log"
 	"log/slog"
 	"os"
@@ -125,6 +126,15 @@ func runSearchTest(cfg *config.Config, httpClient *util.HttpClient) {
 	}
 }
 func main() {
+	// Cron runs of non-default profiles set EXPLO_ISOLATED=1: values from the container environment
+	// (docker "environment:") must not override the profile's own .env, like for runs from the web UI.
+	if os.Getenv("EXPLO_ISOLATED") == "1" {
+		for key := range config.EnvKeys() {
+			if key != "WEB_DATA_PATH" {
+				_ = os.Unsetenv(key)
+			}
+		}
+	}
 	var cfg config.Config
 	if err := cfg.GetFlags(); err != nil {
 		log.Fatal(err)
@@ -175,7 +185,14 @@ func main() {
 		var playlistName string
 		tracks, playlistName, err = loadCustomTracks(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist)
 		if err == nil {
+			if strings.TrimSpace(playlistName) == "" {
+				playlistName = cfg.Flags.Playlist
+			}
 			cfg.ClientCfg.PlaylistName = playlistName
+			if !cfg.ReplacePlaylist {
+				// keep-every-version mode: dated name, otherwise identical names pile up
+				cfg.ClientCfg.PlaylistName = fmt.Sprintf("%s-%s", playlistName, time.Now().Format("2006-01-02"))
+			}
 			hasMBIDs := func() bool {
 				for _, t := range tracks {
 					if t.MusicBrainzTrackID != "" {
@@ -218,12 +235,8 @@ func main() {
 		slog.Error(err.Error(), "notify", true)
 		os.Exit(1)
 	}
-	if cfg.ReplacePlaylist {
-		err := client.DeletePlaylist()
-		if err != nil {
-			slog.Warn(err.Error(), "notify", true)
-		}
-	}
+	// the old playlist is removed inside client.CreatePlaylist, right before the new one is created
+	client.ReplaceExisting = cfg.ReplacePlaylist
 	if cfg.Flags.CleanDownloads && cfg.DownloadCfg.UseSubDir {
 		downloader.DeleteSongs()
 	}
@@ -234,7 +247,10 @@ func main() {
 	}
 
 	if cfg.Flags.DownloadMode != "skip" {
-		downloader.StartDownload(&tracks)
+		if err := downloader.StartDownload(&tracks); err != nil {
+			slog.Error(err.Error(), "notify", true)
+			os.Exit(1)
+		}
 		if len(tracks) == 0 {
 			slog.Error("couldn't download any tracks", "notify", true)
 			os.Exit(1)
@@ -251,13 +267,28 @@ func main() {
 
 // uploadCustomPlaylistArtwork pushes a custom playlist's cached artwork to the music app
 // after first successful creation. No-op for non-custom playlists, playlists without
-// artwork, or clients that don't support artwork upload (Subsonic, MPD).
+// artwork, or clients that don't support artwork upload (MPD).
 func uploadCustomPlaylistArtwork(cfg *config.Config, c *client.Client) {
+	// A cover uploaded in the web UI wins and is re-applied on every run,
+	// because replacing a playlist creates a new one without cover.
+	if uploader, ok := c.API.(client.ArtworkUploader); ok && cfg.ServerCfg.WebDataDir != "" {
+		userCover := playlist.UserCoverPath(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist)
+		if _, err := os.Stat(userCover); err == nil {
+			if err := uploader.SetPlaylistArtwork(userCover); err != nil {
+				slog.Warn("could not set custom playlist cover", "playlist", cfg.Flags.Playlist, "err", err.Error())
+			} else {
+				slog.Info("custom playlist cover applied", "playlist", cfg.Flags.Playlist, "system", cfg.System)
+				return
+			}
+		}
+	}
 	if !strings.HasPrefix(cfg.Flags.Playlist, "custom-") {
 		return
 	}
 	cp := playlist.GetCustomPlaylist(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist)
-	if cp == nil || cp.ArtworkURL == "" || cp.ArtworkUploaded {
+	// With "replace playlist" the playlist is re-created on every run, so its cover is gone
+	// and has to be pushed again; otherwise once after the first creation is enough.
+	if cp == nil || cp.ArtworkURL == "" || (cp.ArtworkUploaded && !cfg.ReplacePlaylist) {
 		return
 	}
 	uploader, ok := c.API.(client.ArtworkUploader)

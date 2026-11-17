@@ -67,6 +67,7 @@ func (p *Playlist) RegisterCustomPlaylistRefresh(j *jobs.Jobs) error {
 					slog.Error("custom-playlists: failed to save after refresh", "err", err)
 				}
 			}),
+			gocron.WithTags("profile:"+p.cfg.Profile),
 		)
 		if err != nil {
 			slog.Warn("custom-playlists: failed to register refresh job", "id", plist.ID, "err", err)

@@ -1,7 +1,14 @@
 package client
 
 import (
+	"bytes"
+	"regexp"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
 	"log/slog"
 	"strings"
 	"time"
@@ -288,11 +295,105 @@ func (c *Subsonic) UpdatePlaylist() error {
 	return nil
 }
 
+// DeletePlaylist removes every playlist with the configured name (not just the first one),
+// so duplicates left over from earlier runs get cleaned up as well.
 func (c *Subsonic) DeletePlaylist() error {
-	reqParam := fmt.Sprintf("deletePlaylist?id=%s&f=json", c.Cfg.PlaylistID)
+	ids := []string{}
+	body, err := c.subsonicRequest("getPlaylists?f=json")
+	if err != nil {
+		return fmt.Errorf("could not list playlists, old playlist not removed: %w", err)
+	}
+	var resp SubResponse
+	if err := util.ParseResp(body, &resp); err != nil {
+		return fmt.Errorf("could not read playlists, old playlist not removed: %w", err)
+	}
+	for _, pl := range resp.SubsonicResponse.Playlists.Playlist {
+		if pl.Name != c.Cfg.PlaylistName {
+			continue
+		}
+		// getPlaylists also returns public playlists of other users (and, for admins, all of them):
+		// only touch the ones that belong to the configured user
+		if pl.Owner != "" && !strings.EqualFold(pl.Owner, c.Cfg.Creds.User) {
+			continue
+		}
+		ids = append(ids, pl.ID)
+	}
+	if len(ids) == 0 && c.Cfg.PlaylistID != "" {
+		ids = append(ids, c.Cfg.PlaylistID)
+	}
+	if len(ids) == 0 {
+		return nil // nothing to delete
+	}
 
-	if _, err := c.subsonicRequest(reqParam); err != nil {
+	var firstErr error
+	for _, id := range ids {
+		if _, err := c.subsonicRequest(fmt.Sprintf("deletePlaylist?id=%s&f=json", url.QueryEscape(id))); err != nil {
+			slog.Warn("failed to delete playlist", "id", id, "err", err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	if len(ids) > 1 {
+		slog.Info("removed duplicate playlists", "name", c.Cfg.PlaylistName, "count", len(ids))
+	}
+	return firstErr
+}
+
+// SetPlaylistArtwork uploads a cover through Navidrome's native API (Navidrome >= 0.61).
+// The Subsonic API itself has no way to set playlist covers, so this logs in at /auth/login
+// with the configured user/password and posts the image to /api/playlist/{id}/image.
+func (c *Subsonic) SetPlaylistArtwork(localPath string) error {
+	if c.Cfg.PlaylistID == "" {
+		return fmt.Errorf("subsonic: no PlaylistID set")
+	}
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		return fmt.Errorf("read artwork: %w", err)
+	}
+
+	loginBody, err := json.Marshal(map[string]string{"username": c.Cfg.Creds.User, "password": c.Cfg.Creds.Password})
+	if err != nil {
 		return err
+	}
+	resp, err := c.HttpClient.MakeRequest("POST", c.Cfg.URL+"/auth/login", bytes.NewReader(loginBody), nil)
+	if err != nil {
+		return fmt.Errorf("navidrome login failed (cover upload needs Navidrome >= 0.61): %w", err)
+	}
+	var login struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(resp, &login); err != nil || login.Token == "" {
+		return fmt.Errorf("navidrome login returned no token")
+	}
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreateFormFile("image", filepath.Base(localPath))
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(data); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", c.Cfg.URL+"/api/playlist/"+url.PathEscape(c.Cfg.PlaylistID)+"/image", &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("X-ND-Authorization", "Bearer "+login.Token)
+	res, err := c.HttpClient.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("upload cover: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(res.Body, 512))
+		return fmt.Errorf("upload cover: status %d: %s", res.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil
 }
@@ -302,7 +403,7 @@ func (c *Subsonic) subsonicRequest(reqParams string) ([]byte, error) {
 	reqURL := fmt.Sprintf("%s/rest/%s&u=%s&t=%s&s=%s&v=%s&c=%s",c.Cfg.URL, reqParams, c.Cfg.Creds.User, c.Token, c.Salt, c.Cfg.Subsonic.Version, c.Cfg.ClientID)
 	body, err := c.HttpClient.MakeRequest("GET", reqURL, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request %s", err.Error())
+		return nil, fmt.Errorf("failed to make request %s", maskSubsonicSecrets(err.Error()))
 	}
 
 	var checkResp FailedResp
@@ -312,4 +413,12 @@ func (c *Subsonic) subsonicRequest(reqParams string) ([]byte, error) {
 		return nil, fmt.Errorf("%s", checkResp.SubsonicResponse.Error.Message)
 	}
 	return body, nil
+}
+
+// subsonicSecretRe matches the user, token and salt parameters of a Subsonic request URL.
+var subsonicSecretRe = regexp.MustCompile(`([?&](?:u|t|s|p)=)[^&\s"']+`)
+
+// maskSubsonicSecrets hides credentials that HTTP errors may carry inside the request URL.
+func maskSubsonicSecrets(msg string) string {
+	return subsonicSecretRe.ReplaceAllString(msg, "${1}***")
 }

@@ -44,6 +44,10 @@ type Client struct {
 	System string
 	Cfg    *config.ClientConfig
 	API    APIClient
+
+	// ReplaceExisting removes the old playlist with the same name right before the new one is
+	// created, so a failed run (download problem, library scan) never leaves the user without one.
+	ReplaceExisting bool
 }
 
 type APIClient interface {
@@ -232,6 +236,11 @@ func (c *Client) CreatePlaylist(tracks []*models.Track) error {
 
 	if err := c.API.SearchSongs(tracks); err != nil { // search newly added songs
 		slog.Warn("SearchSongs failed", "context", err)
+	}
+	if c.ReplaceExisting {
+		if err := c.DeletePlaylist(); err != nil {
+			slog.Warn(err.Error(), "notify", true)
+		}
 	}
 	if err := c.API.CreatePlaylist(tracks); err != nil {
 		return fmt.Errorf("[%s] failed to create playlist: %s", c.System, err.Error())
