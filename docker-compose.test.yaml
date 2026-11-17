@@ -1,0 +1,23 @@
+# Test-Compose für den Explo-Multi-Profil-Build.
+# Vorher: docker build -t explo-multi:test .   (im Ordner, wo das Dockerfile liegt)
+services:
+  explo:
+    image: explo-multi:test
+    container_name: explo-test
+    restart: unless-stopped        # Pflicht: der "Restart now"-Button in der Web-UI beendet den Container, Docker startet ihn neu
+    ports:
+      - "7288:7288"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=Europe/Berlin           # Zeitpläne laufen in dieser Zeitzone
+      - WEB_UI=true
+      # UI-Login (empfohlen, sonst ist die UI offen):
+      # - UI_USERNAME=admin
+      # - UI_PASSWORD=bitte-aendern
+      # - PUID=1000
+      # - PGID=1000
+    volumes:
+      - ./explo-data/env/.env:/opt/explo/.env          # Datei muss VORHER existieren (touch), sie gehört dem Profil "default"
+      - ./explo-data/config:/opt/explo/config          # Profile liegen in ./explo-data/config/profiles/<name>/
+      - ./explo-data/music:/data                       # Download-Ordner. Muss beschreibbar sein!

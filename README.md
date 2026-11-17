@@ -44,6 +44,27 @@ Or jump directly to:
 - [FAQ](https://github.com/LumePart/Explo/wiki/8.-FAQ) – Common questions
 
 
+## Multiple users in one container
+
+One container can serve any number of users (e.g. several Navidrome accounts). Open the web UI and use the
+profile dropdown in the header ("+ add profile…"). Each profile has its own `.env` (credentials, playlists,
+schedules) and data dir under `<config dir>/profiles/<name>/`. The existing setup keeps working unchanged as
+profile `default`.
+
+- Set a **different `DOWNLOAD_DIR`/`SYSTEM_USERNAME`** in each profile's `.env`.
+- Config values set via container `environment:` apply to the `default` profile only. Named profiles ignore
+  them on purpose; put per-user settings into the profile's `.env`.
+- Schedules are registered when the container starts, so restart it after changing a profile's schedule.
+- Manual runs are serialized across profiles (one run at a time).
+
+## Custom playlist covers
+
+In the web UI (Home → Cover) you can upload your own cover (JPEG/PNG/GIF, max 10 MB) for any playlist. It is set
+automatically after every run, since replacing a playlist creates a new one. Supported: Plex, Jellyfin, Emby and
+Navidrome >= 0.61 (via its native API, using `SYSTEM_USERNAME`/`SYSTEM_PASSWORD`; the Subsonic API itself cannot set covers).
+
+For Subsonic/Navidrome, replacing a playlist now removes *all* playlists with that name, which also cleans up old duplicates.
+
 ## Kubernetes
 
 ```bash
