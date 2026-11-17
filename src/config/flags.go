@@ -28,6 +28,7 @@ func (cfg *Config) GetFlags() error {
 	var cleanDownloads bool
 	var keepVersions int
 	var checkShort, moveShort bool
+	var renameFrom, renameTo string
 	// Long flags
 	flag.StringVarP(&configPath, "config", "c", ".env", "Path of the configuration file")
 	flag.StringVarP(&playlist, "playlist", "p", "weekly-exploration", "Playlist where to get tracks. Supported: weekly-exploration, weekly-jams, daily-jams, on-repeat, fresh-releases")
@@ -42,6 +43,8 @@ func (cfg *Config) GetFlags() error {
 	flag.IntVar(&keepVersions, "keep-versions", 0, "With --replace-playlist=false: keep only the newest N dated copies of a playlist (0 = keep all)")
 	flag.BoolVar(&checkShort, "check-short", false, "Measure already downloaded songs against their real length and report the ones that are far too short or too long (needs durations in the playlist cache)")
 	flag.BoolVar(&moveShort, "move-short", false, "With --check-short: move the wrong files to <download dir>/.explo-rejected/ so the next run downloads them again")
+	flag.StringVar(&renameFrom, "rename-playlist", "", "Rename the playlist (and its dated copies) with this name in the music server, use with --to")
+	flag.StringVar(&renameTo, "to", "", "New name for --rename-playlist")
 
 	flag.Parse()
 
@@ -78,6 +81,8 @@ func (cfg *Config) GetFlags() error {
 	cfg.Flags.CleanDownloads = cleanDownloads
 	cfg.Flags.KeepVersions = keepVersions
 	cfg.Flags.CheckShort = checkShort
+	cfg.Flags.RenameFrom = renameFrom
+	cfg.Flags.RenameTo = renameTo
 	cfg.Flags.MoveShort = moveShort
 
 	// for deprecation purposes (can be removed at a later date)

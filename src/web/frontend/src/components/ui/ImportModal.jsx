@@ -78,7 +78,13 @@ function SuccessPanel({ result, onImported, onSync, onClose, onError }) {
           <h2 className="text-[15px] font-semibold text-white leading-none">{result.name}</h2>
           <p className="text-[11px] text-muted mt-1">
             {result.track_count} track{result.track_count !== 1 ? 's' : ''} imported
+            {' · '}{result.replace === false ? 'Keep copies' : 'Replace on'}
+            {' · '}{scheduleText(result.schedule)}
+            {result.public ? ' · visible to everyone' : ''}
           </p>
+          {result.forProfiles?.length > 0 && (
+            <p className="text-[11px] text-muted mt-1">Same settings for you and {result.forProfiles.map(n => result.labelsMap?.[n] || n).join(', ')}.</p>
+          )}
           {result.also && Object.keys(result.also).length > 0 && (
             <p className="text-[11px] text-muted mt-1">
               Also added for: {Object.entries(result.also).map(([n, st]) => `${n} ${st === 'ok' ? '✓' : `✗ (${st})`}`).join(', ')}
@@ -131,6 +137,13 @@ function SuccessPanel({ result, onImported, onSync, onClose, onError }) {
   )
 }
 
+// "0 4 * * *" -> "Schedule 04:00"; no cron -> "no schedule yet (set one in the ⋮ menu)"
+function scheduleText(cron) {
+  if (!cron) return 'no schedule yet (⋮ menu)'
+  const [min, hour] = cron.split(' ')
+  return `Schedule ${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
 export function ImportModal({ onClose, onImported, onSync }) {
   const [source, setSource] = useState(null)   // 'listenbrainz' | 'apple_music'
   const [url, setUrl] = useState('')
@@ -145,6 +158,7 @@ export function ImportModal({ onClose, onImported, onSync }) {
   const [onlyMe, setOnlyMe] = useState(true)        // "playlist only for you?" yes by default
   const [others, setOthers] = useState([])          // other profiles that get the playlist too
   const [isPublic, setIsPublic] = useState(false)   // visible to everyone on the music server
+  const [replaceMode, setReplaceMode] = useState(true) // Replace (one playlist per name) or Keep (a dated copy per run)
   const me = getProfile()
   const labelOf = (n) => labels[n] || n
   const otherProfiles = profiles.filter(n => n !== me)
@@ -160,12 +174,12 @@ export function ImportModal({ onClose, onImported, onSync }) {
     if (!url.trim() || loading) return
     setLoading(true)
     try {
-      const data = await importCustomPlaylist(url.trim(), source, refreshDays, { profiles: onlyMe ? [] : others, isPublic })
+      const data = await importCustomPlaylist(url.trim(), source, refreshDays, { profiles: onlyMe ? [] : others, isPublic, replace: replaceMode })
       let coverError = ''
       if (coverFile) {
         try { await uploadCover(data.id, coverFile) } catch (e) { coverError = e.message || 'cover upload failed' }
       }
-      setResult({ ...data, coverError })
+      setResult({ ...data, coverError, forProfiles: onlyMe ? [] : others, labelsMap: labels })
       setPhase('success')
     } catch (e) {
       setErrorMsg(e.message || 'Import failed')
@@ -306,6 +320,26 @@ export function ImportModal({ onClose, onImported, onSync }) {
                     disabled={loading}
                     className="w-full bg-well border border-ui-border text-white rounded-lg px-3 py-2 text-[13px] outline-none placeholder:text-[#444] focus:border-[var(--brand)] transition-colors disabled:opacity-50"
                   />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium text-muted">
+                    What happens at every run?
+                  </label>
+                  <div className="flex gap-2 flex-wrap">
+                    {[[true, 'Replace the playlist (recommended)'], [false, 'Keep a dated copy each run']].map(([v, text]) => (
+                      <button key={text} type="button" disabled={loading}
+                        onClick={() => setReplaceMode(v)}
+                        className={`rounded-full px-3.5 py-1 text-[12px] border cursor-pointer bg-transparent transition-colors ${replaceMode === v ? 'border-[var(--brand)] text-white' : 'border-ui-border text-muted hover:text-white'}`}>
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[11px] text-muted">
+                    {replaceMode
+                      ? 'One playlist with this name; each run rebuilds it. Songs stay in your library.'
+                      : 'Each run adds a new playlist “Name-date” next to the old ones.'}
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-1.5">

@@ -212,11 +212,11 @@ export async function fetchCustomPlaylists() {
   return res.json()
 }
 
-export async function importCustomPlaylist(url, source, refresh_days, { profiles = [], isPublic = false } = {}) {
+export async function importCustomPlaylist(url, source, refresh_days, { profiles = [], isPublic = false, replace = true } = {}) {
   const res = await apiFetch('/api/ui/custom-playlists', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, source, refresh_days, profiles, public: isPublic }),
+    body: JSON.stringify({ url, source, refresh_days, profiles, public: isPublic, replace }),
   })
   if (res.status === 409) throw Object.assign(new Error('already imported'), { duplicate: true })
   if (!res.ok) throw new Error(await res.text())
@@ -470,4 +470,22 @@ export async function setPlaylistPublic(id, isPublic) {
     body: JSON.stringify({ public: isPublic }),
   })
   if (!res.ok) throw new Error((await res.text()).trim() || 'could not change visibility')
+}
+
+// ---- rename playlists / names of built-in playlists ----
+export async function renamePlaylist(id, name) {
+  const res = await apiFetch(`/api/ui/playlists/${encodeURIComponent(id)}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'rename failed')
+  return res.json()
+}
+
+export async function fetchPlaylistNames() {
+  try {
+    const res = await apiFetch('/api/ui/playlist-names')
+    return res.ok ? await res.json() : {}
+  } catch { return {} }
 }

@@ -141,7 +141,7 @@ func (s *Settings) HandleSaveSchedule(w http.ResponseWriter, r *http.Request) {
 		currentFlags = s.ParseEnvText(string(data))[envPrefix+"_FLAGS"]
 	}
 	mergeFlags := func(base string) string {
-		injected := []string{"--replace-playlist=false", "--clean-downloads"}
+		injected := []string{"--replace-playlist=false", "--replace-playlist=true", "--clean-downloads"}
 		var extras []string
 		for _, f := range injected {
 			if strings.Contains(currentFlags, f) {
@@ -252,7 +252,6 @@ func (s *Settings) HandleSaveReplacePlaylist(w http.ResponseWriter, r *http.Requ
 	}
 
 	flagsKey := envPrefix + "_FLAGS"
-	const replaceFlag = "--replace-playlist=false"
 
 	data, err := os.ReadFile(s.cfg.WebEnvPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -265,16 +264,7 @@ func (s *Settings) HandleSaveReplacePlaylist(w http.ResponseWriter, r *http.Requ
 		currentFlags = defaultFlags
 	}
 
-	hasFlag := strings.Contains(currentFlags, replaceFlag)
-	newFlags := currentFlags
-	if !body.Replace && !hasFlag {
-		newFlags = strings.TrimSpace(currentFlags + " " + replaceFlag)
-	} else if body.Replace && hasFlag {
-		newFlags = strings.TrimSpace(strings.ReplaceAll(currentFlags, replaceFlag, ""))
-		for strings.Contains(newFlags, "  ") {
-			newFlags = strings.ReplaceAll(newFlags, "  ", " ")
-		}
-	}
+	newFlags := SetReplaceFlag(currentFlags, body.Replace)
 
 	if err := s.UpdateEnvKeys(map[string]string{flagsKey: newFlags}, web.SampleEnv); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -661,3 +651,17 @@ func (s *Settings) HandleSaveKeys(w http.ResponseWriter, r *http.Request) {
 
 // numericKeys must hold a non-negative whole number (or be empty to reset to the default).
 var numericKeys = map[string]bool{"MIN_BITRATE": true, "KEEP_VERSIONS": true}
+
+// SetReplaceFlag returns the flags with an explicit --replace-playlist=true or =false, so the mode can be read
+// straight from the .env (no "flag missing means replace" guessing). Other flags are kept.
+func SetReplaceFlag(flags string, replace bool) string {
+	var out []string
+	for _, f := range strings.Fields(flags) {
+		if f == "--replace-playlist" || strings.HasPrefix(f, "--replace-playlist=") {
+			continue
+		}
+		out = append(out, f)
+	}
+	out = append(out, fmt.Sprintf("--replace-playlist=%t", replace))
+	return strings.Join(out, " ")
+}

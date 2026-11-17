@@ -387,12 +387,27 @@ export function PlaylistCard({
   onReplaceToggle,
   isPublic = false,
   onPublicToggle,
+  sourceLabel,
+  onRename,
   trackId,
   artworkUrl,
   sourceUrl,
   refreshTick = 0,
 }) {
   const [pubOn, setPubOn] = useState(!!isPublic)
+  const [renaming, setRenaming] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [renameErr, setRenameErr] = useState('')
+  const [renameBusy, setRenameBusy] = useState(false)
+  const renameId = trackId ?? playlist.value
+  const doRename = async () => {
+    setRenameBusy(true); setRenameErr('')
+    try {
+      const res = await onRename(renameId, draft.trim())
+      setRenaming(false); setMenuOpen(false)
+      if (res?.warning && res.music_server) window.alert(res.music_server)
+    } catch (e) { setRenameErr(e.message) } finally { setRenameBusy(false) }
+  }
   const { value, name } = playlist
   // trackFetchId: use real playlist ID (custom playlists) if provided, else fall back to value
   const trackFetchId = trackId ?? value
@@ -644,6 +659,18 @@ export function PlaylistCard({
           }}>
             {nextRunText}
           </span>
+          <span
+            title={replacePlaylist ? 'Each run replaces the playlist (one playlist per name)' : `Each run creates a new dated copy: ${name}-<date>`}
+            style={{
+              display: 'block', marginTop: 2,
+              fontSize: 8, fontWeight: 400,
+              color: 'rgba(255,255,255,0.7)',
+              mixBlendMode: 'hard-light',
+              letterSpacing: '0.02em',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+            {replacePlaylist ? 'Replace' : 'Keep copies'}{sourceLabel ? ` · ${sourceLabel}` : ''}
+          </span>
         </div>
 
         {/* Toggle — bottom right */}
@@ -747,6 +774,44 @@ export function PlaylistCard({
           >
             Remove cover
           </button>
+          )}
+          {onRename && !renaming && (
+            <button
+              onClick={e => { e.stopPropagation(); setDraft(String(renameId).startsWith('custom-') ? name : ''); setRenameErr(''); setRenaming(true) }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                background: 'none', border: 'none',
+                padding: '8px 14px', fontSize: 13, color: '#c0c0c0',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+            >
+              Rename…
+            </button>
+          )}
+          {onRename && renaming && (
+            <div onClick={e => e.stopPropagation()} style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                autoFocus
+                value={draft}
+                disabled={renameBusy}
+                onChange={e => { setDraft(e.target.value); setRenameErr('') }}
+                onKeyDown={e => { if (e.key === 'Enter') doRename(); if (e.key === 'Escape') setRenaming(false) }}
+                placeholder={playlist.value && !String(playlist.value).startsWith('custom-') ? 'empty = default name' : 'new name'}
+                style={{ background: '#0d0d0d', border: '1px solid #333', color: 'white', borderRadius: 6, padding: '5px 8px', fontSize: 13, outline: 'none', width: '100%' }}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={doRename} disabled={renameBusy}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent, #1ed760)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                  {renameBusy ? 'Renaming…' : 'Rename'}
+                </button>
+                <button onClick={() => setRenaming(false)} disabled={renameBusy}
+                  style={{ background: 'none', border: 'none', color: '#888', fontSize: 12, cursor: 'pointer', padding: 0 }}>Cancel</button>
+              </div>
+              {renameErr && <span style={{ fontSize: 11, color: '#e55' }}>{renameErr}</span>}
+              <span style={{ fontSize: 10, color: '#777', lineHeight: 1.35 }}>Also renames it in the music server, with its dated copies.</span>
+            </div>
           )}
           {onPublicToggle && (
             <button

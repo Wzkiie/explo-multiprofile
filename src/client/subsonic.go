@@ -402,6 +402,47 @@ func (c *Subsonic) PruneVersions(keep int, keepID string) error {
 	return firstErr
 }
 
+var copySuffixRe = regexp.MustCompile(`^-(\d{4}-\d{2}-\d{2}|\d{4}-Week\d+|\d{4}-Day\d+)$`)
+
+// RenamePlaylists renames the user's own playlists called oldName, and the dated copies of it
+// ("<oldName>-2026-11-17", "-2026-Week46", "-2026-Day321"), to newName / "<newName><same suffix>".
+// Navidrome needs playlistId= for updatePlaylist (with id= it answers "ok" and does nothing).
+func (c *Subsonic) RenamePlaylists(oldName, newName string) (int, error) {
+	body, err := c.subsonicRequest("getPlaylists?f=json")
+	if err != nil {
+		return 0, fmt.Errorf("could not list playlists: %w", err)
+	}
+	var resp SubResponse
+	if err := util.ParseResp(body, &resp); err != nil {
+		return 0, fmt.Errorf("could not read playlists: %w", err)
+	}
+	n := 0
+	var firstErr error
+	for _, pl := range resp.SubsonicResponse.Playlists.Playlist {
+		if pl.Owner != "" && !strings.EqualFold(pl.Owner, c.Cfg.Creds.User) {
+			continue
+		}
+		target := ""
+		switch {
+		case pl.Name == oldName:
+			target = newName
+		case strings.HasPrefix(pl.Name, oldName) && copySuffixRe.MatchString(strings.TrimPrefix(pl.Name, oldName)):
+			target = newName + strings.TrimPrefix(pl.Name, oldName)
+		default:
+			continue
+		}
+		if _, err := c.subsonicRequest(fmt.Sprintf("updatePlaylist?playlistId=%s&name=%s&f=json", url.QueryEscape(pl.ID), url.QueryEscape(target))); err != nil {
+			slog.Warn("failed to rename playlist", "name", pl.Name, "err", err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		n++
+	}
+	return n, firstErr
+}
+
 // SetPlaylistArtwork uploads a cover through Navidrome's native API (Navidrome >= 0.61).
 // The Subsonic API itself has no way to set playlist covers, so this logs in at /auth/login
 // with the configured user/password and posts the image to /api/playlist/{id}/image.

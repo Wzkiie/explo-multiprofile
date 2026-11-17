@@ -207,4 +207,10 @@ Die Längen speichert Explo im Playlist-Cache (`durationMs`); bei Spotify-Playli
 (nichts wird gelöscht), der nächste Lauf lädt sie neu. Für ein weiteres Profil: `docker exec <container> sh -c 'cd /opt/explo && EXPLO_ISOLATED=1 WEB_DATA_PATH=/opt/explo/config/profiles/<name>/ ./explo --config /opt/explo/config/profiles/<name>/.env --check-short'`.
 Nicht getestet im echten Container: der Suchtreffer-Vorfilter über `duration_seconds` von YouTube Music.
 
+**Playlists umbenennen und Modus sehen:** ⋮ → „Rename…" auf jeder Karte (eigene und eingebaute wie Daily Jams). Mit umbenannt wird alles, was am Namen hängt: der Eintrag in
+`custom-playlists.json`, die Zeitplan-Schlüssel in der `.env` (danach erscheint „Restart needed") und die Playlist samt datierten Kopien in Navidrome/Subsonic (bei anderen Servern
+erscheint ein Hinweis, dann von Hand umbenennen). Bei eingebauten Playlists ändert sich nur der Name im Musikserver (Datei `playlist-names.json`), nicht die Quelle; leerer Name = Standardname.
+Der Download-Ordner behält seinen Namen. Die Karten zeigen „Replace"/„Keep copies" und die Quelle. Im Import-Fenster wählt man Replace (Standard) oder Keep; der Modus steht
+danach ausdrücklich als `--replace-playlist=true|false` in der `.env`.
+
 Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.

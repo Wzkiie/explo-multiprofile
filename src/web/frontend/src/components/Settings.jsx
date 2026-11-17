@@ -15,7 +15,7 @@ import {
   fetchConfig, fetchConfigRaw, saveConfig, resetConfig,
   saveSchedule, startRun, stopRun, fetchRunStatus, fetchLogs,
   fetchCustomPlaylists, deleteCustomPlaylist, savePathTemplate, saveEnrichMetadata,
-  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount, spotifyCookiePresent, saveSpotifyCookie, deleteSpotifyCookie, setPlaylistPublic,
+  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount, spotifyCookiePresent, saveSpotifyCookie, deleteSpotifyCookie, setPlaylistPublic, renamePlaylist, fetchPlaylistNames,
   cookiesPresent, uploadCookies, deleteCookies,
   renameProfile, deleteProfile, restartNeeded, restartNow,
   fetchPathTemplatePresets, addPathTemplatePreset, deletePathTemplatePreset,
@@ -136,6 +136,7 @@ function CustomPlaylistsSection({
   onImportedRefresh,
   onSync,
   onDelete,
+  onRename,
   showImportModal,
   setShowImportModal,
   refreshTick = 0,
@@ -174,6 +175,8 @@ function CustomPlaylistsSection({
                 tracklistOpen={openTracklist === cp.id}
                 onTracklistToggle={() => setOpenTracklist(v => v === cp.id ? null : cp.id)}
                 sourceUrl={cp.source_url || undefined}
+                sourceLabel={SOURCE_LABELS[cp.source] || (cp.source_url ? 'Imported' : 'Manual')}
+                onRename={onRename}
                 isPublic={!!cp.public}
                 onPublicToggle={(v) => setPlaylistPublic(cp.id, v)}
                 onDelete={(opts) => onDelete(cp.id, opts)}
@@ -370,6 +373,8 @@ function PlaylistHandling() {
   )
 }
 
+const SOURCE_LABELS = { spotify: 'Spotify', apple_music: 'Apple Music', listenbrainz: 'ListenBrainz' }
+
 function HomeSection() {
   const [schedules, setSchedules] = useState(null)
   const [replacePlaylists, setReplacePlaylists] = useState({})
@@ -377,6 +382,7 @@ function HomeSection() {
   const [lbUser, setLbUser] = useState('')
   const [openTracklist, setOpenTracklist] = useState(null)
   const [customPlaylists, setCustomPlaylists] = useState([])
+  const [builtinNames, setBuiltinNames] = useState({}) // custom names of the built-in playlists
   const [showImportModal, setShowImportModal] = useState(false)
 
   const [playlist, setPlaylist] = useState('weekly-exploration')
@@ -391,6 +397,7 @@ function HomeSection() {
   const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
+    fetchPlaylistNames().then(setBuiltinNames)
     Promise.all([
       fetchConfig(),
       fetchCustomPlaylists().catch(() => [])
@@ -454,6 +461,23 @@ function HomeSection() {
     })
     return () => disconnect()
   }, [connect, disconnect])
+
+  // rename a playlist (custom or built-in); everything that hangs on the name is moved by the server
+  const renameCard = async (id, newName) => {
+    const res = await renamePlaylist(id, newName)
+    if (id.startsWith('custom-')) {
+      setCustomPlaylists(prev => prev.map(c => c.id === id ? { ...c, name: res.name } : c))
+      setSchedules(prev => prev[id] ? { ...prev, [id]: { ...prev[id], name: res.name } } : prev)
+    } else {
+      const p = PLAYLISTS.find(x => x.value === id)
+      setBuiltinNames(prev => {
+        const next = { ...prev }
+        if (!newName || (p && res.name === p.name.replace(/ /g, '-'))) delete next[id]; else next[id] = res.name
+        return next
+      })
+    }
+    return res
+  }
 
   const nextRunText = id => {
     const s = schedules[id]
@@ -541,7 +565,9 @@ function HomeSection() {
           {PLAYLISTS.map((p, i) => (
             <PlaylistCard
               key={p.value}
-              playlist={p}
+              playlist={builtinNames[p.value] ? { ...p, name: builtinNames[p.value] } : p}
+              sourceLabel="ListenBrainz"
+              onRename={renameCard}
               {...scheduleProps(p.value)}
               fixedSchedule={!!p.fixedSchedule}
               index={i}
@@ -604,6 +630,7 @@ function HomeSection() {
           setLogEntries([])
           connect()
         }}
+        onRename={renameCard}
         onDelete={async (id, opts) => {
           try {
             await deleteCustomPlaylist(id, opts)

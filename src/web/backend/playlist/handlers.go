@@ -13,6 +13,7 @@ import (
 	"explo/src/util"
 	"explo/src/web"
 	"explo/src/web/backend/defs"
+	"explo/src/web/backend/settings"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -60,6 +61,7 @@ func (p *Playlist) HandleImportCustomPlaylist(w http.ResponseWriter, r *http.Req
 		Source      string `json:"source"` // "listenbrainz" | "apple_music"
 		RefreshDays int    `json:"refresh_days"`
 		Public      bool   `json:"public"`
+		Replace     *bool  `json:"replace"` // nil = replace (default)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -173,11 +175,14 @@ func (p *Playlist) HandleImportCustomPlaylist(w http.ResponseWriter, r *http.Req
 	// inside the cron task body. "Never" imports get FLAGS only so the card is usable
 	// for manual runs while the schedule editor pre-selects "Never".
 	prefix := util.CustomEnvPrefix(name)
+	replace := body.Replace == nil || *body.Replace
 	envUpdates := map[string]string{
-		prefix + "_FLAGS": "--playlist " + id,
+		prefix + "_FLAGS": settings.SetReplaceFlag("--playlist "+id, replace),
 	}
+	schedule := ""
 	if body.RefreshDays > 0 {
-		envUpdates[prefix+"_SCHEDULE"] = "0 4 * * *"
+		schedule = "0 4 * * *"
+		envUpdates[prefix+"_SCHEDULE"] = schedule
 	}
 	_ = p.settings.UpdateEnvKeys(envUpdates, web.SampleEnv)
 
@@ -204,6 +209,10 @@ func (p *Playlist) HandleImportCustomPlaylist(w http.ResponseWriter, r *http.Req
 		"cover_urls":  covers,
 		"color_index": cp.ColorIndex,
 		"artwork_url": artworkURL,
+		"replace":     replace,
+		"schedule":    schedule,
+		"public":      body.Public,
+		"source":      body.Source,
 	}); err != nil {
 		slog.Error("custom-playlists: failed to write import response", "err", err)
 	}

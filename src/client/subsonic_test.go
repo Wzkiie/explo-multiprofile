@@ -123,3 +123,49 @@ func TestSubsonicPruneVersions(t *testing.T) {
 		t.Fatalf("deleted = %v, want [1]", deleted)
 	}
 }
+
+func TestSubsonicRenamePlaylistsUsesPlaylistIdAndKeepsSuffix(t *testing.T) {
+	var mu sync.Mutex
+	type call struct{ id, name, legacyID string }
+	var calls []call
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/getPlaylists", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","playlists":{"playlist":[
+			{"id":"1","name":"Daily-Jams","owner":"anna"},
+			{"id":"2","name":"Daily-Jams-2026-11-17","owner":"anna"},
+			{"id":"3","name":"Daily-Jams-2026-Week46","owner":"anna"},
+			{"id":"4","name":"Daily-Jams-2026-Day321","owner":"anna"},
+			{"id":"5","name":"Daily-Jams","owner":"bob"},
+			{"id":"6","name":"Daily-Jams-Extended","owner":"anna"},
+			{"id":"7","name":"Other","owner":"anna"}]}}}`))
+	})
+	mux.HandleFunc("/rest/updatePlaylist", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		mu.Lock()
+		calls = append(calls, call{q.Get("playlistId"), q.Get("name"), q.Get("id")})
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cfg := &config.ClientConfig{URL: srv.URL}
+	cfg.Creds.User = "anna"
+	c := &Subsonic{Cfg: *cfg, HttpClient: util.NewHttp(util.HttpClientConfig{Timeout: 5})}
+	n, err := c.RenamePlaylists("Daily-Jams", "Mein Mix")
+	if err != nil || n != 4 {
+		t.Fatalf("renamed %d, err %v, calls %v", n, err, calls)
+	}
+	want := map[string]string{"1": "Mein Mix", "2": "Mein Mix-2026-11-17", "3": "Mein Mix-2026-Week46", "4": "Mein Mix-2026-Day321"}
+	for _, cl := range calls {
+		if cl.legacyID != "" {
+			t.Fatalf("must use playlistId=, not id=: %+v", cl)
+		}
+		if want[cl.id] != cl.name {
+			t.Fatalf("playlist %s renamed to %q, want %q", cl.id, cl.name, want[cl.id])
+		}
+		delete(want, cl.id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("not renamed: %v", want)
+	}
+}

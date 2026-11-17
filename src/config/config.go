@@ -44,6 +44,8 @@ type Flags struct {
 	CleanDownloads bool
 	KeepVersions   int
 	CheckShort     bool
+	RenameFrom     string
+	RenameTo       string
 	MoveShort      bool
 }
 
@@ -339,6 +341,10 @@ func (cfg *Config) HandleDeprecation() {
 func (cfg *Config) GenPlaylistDetails() {
 
 	cfg.ClientCfg.PlaylistName = getPlaylistName(cfg.Flags.Playlist, cfg.ClientCfg.PlaylistNFormat, cfg.ReplacePlaylist)
+	folderName := cfg.ClientCfg.PlaylistName // the download folder keeps its name when a playlist is renamed
+	if custom := ReadPlaylistNames(cfg.ServerCfg.WebDataDir)[cfg.Flags.Playlist]; custom != "" {
+		cfg.ClientCfg.PlaylistName = getPlaylistNameBase(custom, cfg.Flags.Playlist, cfg.ClientCfg.PlaylistNFormat, cfg.ReplacePlaylist)
+	}
 
 	desc := fmt.Sprintf(
     "Created for %s by Explo, using ListenBrainz recommendations.",
@@ -356,7 +362,7 @@ func (cfg *Config) GenPlaylistDetails() {
 		// add playlist name to downloadDir so all songs get downloaded to a single sub directory.
 		cfg.DownloadCfg.DownloadDir = filepath.Join(
 			cfg.DownloadCfg.DownloadDir,
-			cfg.ClientCfg.PlaylistName)
+			folderName)
 	}
 }
 
@@ -366,9 +372,11 @@ func PlaylistFolderName(playlistType string) string {
 }
 
 func getPlaylistName(playlistType, format string, replace bool) string {
+	return getPlaylistNameBase(cases.Title(language.Und).String(playlistType), playlistType, format, replace)
+}
 
-	toTitle := cases.Title(language.Und)
-	base := toTitle.String(playlistType)
+// getPlaylistNameBase builds the name from a base ("Daily-Jams" or a name chosen by the user).
+func getPlaylistNameBase(base, playlistType, format string, replace bool) string {
 
 	// When replacing or for custom playlists, always use base name
 	if replace || strings.HasPrefix(playlistType, "custom-") {

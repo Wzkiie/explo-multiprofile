@@ -162,6 +162,10 @@ func main() {
 		return
 	}
 
+	if cfg.Flags.RenameFrom != "" {
+		os.Exit(renamePlaylists(&cfg))
+	}
+
 	if cfg.Flags.CheckShort {
 		checkShortFiles(&cfg)
 		return
@@ -388,4 +392,32 @@ func checkShortFiles(cfg *config.Config) {
 	if withLength == 0 {
 		slog.Warn("no song has a known length yet: run each playlist once (or refresh it) so the lengths get stored, then check again")
 	}
+}
+
+// renamePlaylists renames the playlists in the music server (exit codes: 0 ok, 3 not supported by this
+// music server, 1 failed). It is started by the web UI when a playlist is renamed there.
+func renamePlaylists(cfg *config.Config) int {
+	if strings.TrimSpace(cfg.Flags.RenameTo) == "" {
+		slog.Error("--rename-playlist needs --to <new name>")
+		return 1
+	}
+	c, err := client.NewClient(cfg)
+	if err != nil {
+		slog.Error(err.Error())
+		return 1
+	}
+	r, ok := c.API.(interface {
+		RenamePlaylists(oldName, newName string) (int, error)
+	})
+	if !ok {
+		slog.Warn("renaming playlists is not supported for this music server, rename it there by hand", "system", cfg.System)
+		return 3
+	}
+	n, err := r.RenamePlaylists(cfg.Flags.RenameFrom, cfg.Flags.RenameTo)
+	if err != nil {
+		slog.Error("rename failed", "err", err.Error())
+		return 1
+	}
+	slog.Info(fmt.Sprintf("renamed %d playlist(s) in the music server", n), "from", cfg.Flags.RenameFrom, "to", cfg.Flags.RenameTo)
+	return 0
 }
