@@ -105,6 +105,8 @@ func (s *Server) registerMiscRoutes() {
 	s.mux.Handle("POST /api/ui/profiles", s.auth(s.handleCreateProfile))
 	s.mux.Handle("DELETE /api/ui/profiles/{name}", s.auth(s.handleDeleteProfile))
 	s.mux.Handle("POST /api/ui/profiles/{name}/rename", s.auth(s.handleRenameProfile))
+	s.mux.Handle("GET /api/ui/account", s.auth(s.authStore.HandleAccountStatus))
+	s.mux.Handle("POST /api/ui/account", s.auth(s.authStore.HandleChangeAccount))
 	s.mux.Handle("GET /api/ui/profile-labels", s.auth(s.handleProfileLabels))
 	s.mux.Handle("POST /api/ui/profiles/{name}/label", s.auth(s.handleSetProfileLabel))
 	s.mux.Handle("GET /api/ui/shared", s.auth(s.handleGetShared))

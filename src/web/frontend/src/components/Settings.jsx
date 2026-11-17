@@ -15,7 +15,7 @@ import {
   fetchConfig, fetchConfigRaw, saveConfig, resetConfig,
   saveSchedule, startRun, stopRun, fetchRunStatus, fetchLogs,
   fetchCustomPlaylists, deleteCustomPlaylist, savePathTemplate, saveEnrichMetadata,
-  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel,
+  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel, fetchAccount, changeAccount,
   cookiesPresent, uploadCookies, deleteCookies,
   renameProfile, deleteProfile, restartNeeded, restartNow,
   fetchPathTemplatePresets, addPathTemplatePreset, deletePathTemplatePreset,
@@ -1422,6 +1422,8 @@ function ConfigSection({ onWizard }) {
 
       </details>
 
+      <AccountSection />
+
       <div className="mt-6">
         <SectionLabel>Setup</SectionLabel>
         <div className="flex flex-col items-start gap-2.5">
@@ -1490,6 +1492,74 @@ function LogsSection() {
 
 // Module-level cache so the picked cover survives component remounts.
 let _bgCoverCache = null
+
+// Login of the Explo web interface itself (not the music server): change name and password any time.
+function AccountSection() {
+  const [acc, setAcc] = useState(null)
+  const [username, setUsername] = useState('')
+  const [current, setCurrent] = useState('')
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [msg, setMsg] = useState({ text: '', ok: false })
+
+  useEffect(() => {
+    fetchAccount().then(a => { setAcc(a); setUsername(a.username || '') }).catch(() => {})
+  }, [])
+  if (!acc) return null
+
+  const off = acc.auth_disabled
+  const inputCls = 'bg-well border border-ui-border text-white rounded-[6px] px-2.5 py-1.5 text-[13px] outline-none focus:border-accent w-full'
+  const submit = async () => {
+    setMsg({ text: '', ok: false })
+    if (pw && pw !== pw2) { setMsg({ text: 'The two new passwords are different.', ok: false }); return }
+    if (off && !pw) { setMsg({ text: 'Choose a password (at least 8 characters) to turn the login on.', ok: false }); return }
+    try {
+      await changeAccount({ current, username: username.trim(), password: pw })
+      setCurrent(''); setPw(''); setPw2('')
+      setAcc(a => ({ ...a, username: username.trim() || a.username, auth_disabled: false }))
+      setMsg({ text: off ? 'Login turned on ✓ — you will be asked for it from the next page load.' : 'Saved ✓', ok: true })
+    } catch (e) { setMsg({ text: e.message, ok: false }) }
+  }
+
+  return (
+    <div className="mt-6">
+      <SectionLabel>Explo login</SectionLabel>
+      <p className="text-[12px] text-muted mb-3">
+        {off
+          ? 'The web interface is open to everyone who can reach it. Set a name and password to protect it.'
+          : 'The name and password you use to sign in to this web interface. You can change them at any time. A login set here replaces UI_USERNAME / UI_PASSWORD from the compose file.'}
+      </p>
+      <div className="flex gap-3 flex-wrap">
+        <label className="flex flex-col gap-1 min-w-[200px] flex-1">
+          <span className="text-[12px] text-muted">Username</span>
+          <input value={username} onChange={e => setUsername(e.target.value)} autoComplete="off" spellCheck={false} className={inputCls} />
+        </label>
+        {!off && (
+          <label className="flex flex-col gap-1 min-w-[200px] flex-1">
+            <span className="text-[12px] text-muted">Current password</span>
+            <input type="password" value={current} onChange={e => setCurrent(e.target.value)} autoComplete="current-password" className={inputCls} />
+          </label>
+        )}
+        <label className="flex flex-col gap-1 min-w-[200px] flex-1">
+          <span className="text-[12px] text-muted">New password{off ? '' : ' (leave empty to keep it)'}</span>
+          <input type="password" value={pw} onChange={e => setPw(e.target.value)} autoComplete="new-password" className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1 min-w-[200px] flex-1">
+          <span className="text-[12px] text-muted">Repeat new password</span>
+          <input type="password" value={pw2} onChange={e => setPw2(e.target.value)} autoComplete="new-password" className={inputCls} />
+        </label>
+      </div>
+      <div className="flex items-center gap-3 mt-3">
+        <button type="button" onClick={submit}
+          className="bg-transparent border border-accent text-white rounded-full px-4 py-1 text-[13px] cursor-pointer hover:bg-accent/10">
+          {off ? 'Turn login on' : 'Change login'}
+        </button>
+        {msg.text && <span className={`text-[12px] ${msg.ok ? 'text-muted' : 'text-danger'}`}>{msg.text}</span>}
+      </div>
+      <p className="text-[11px] text-muted mt-2">Password: 8–72 characters. If you forget it, delete the file ui-auth.json in the config folder and restart.</p>
+    </div>
+  )
+}
 
 function ProfileSwitcher() {
   const [profiles, setProfiles] = useState([getProfile()])

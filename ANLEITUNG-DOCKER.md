@@ -186,4 +186,8 @@ Das Wegwerf-Konto und die Test-Playlists danach wieder löschen.
 - Das Profil `default` kann in der Kopfzeile über „Rename" einen Anzeigenamen bekommen (z. B. „Jacob"). Der Ordner bleibt `default`.
 - Ein neues Profil übernimmt Server-Typ, Adresse, Bibliotheksname und Download-Ordner vom ersten Profil. Nutzername und Passwort trägt man selbst ein.
 
+**Login der Web-Oberfläche ändern:** Settings → „Explo login": Name und/oder Passwort jederzeit ändern (aktuelles Passwort nötig, neues 8–72 Zeichen).
+Ist noch kein Login gesetzt, schaltet derselbe Abschnitt ihn ein. Das Login wird als Hash in `ui-auth.json` (0600) im Config-Ordner gespeichert und ersetzt
+`UI_USERNAME`/`UI_PASSWORD` aus der Compose-Datei. Passwort vergessen: `ui-auth.json` löschen und den Container neu starten.
+
 Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.

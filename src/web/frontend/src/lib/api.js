@@ -15,7 +15,7 @@ export function setProfile(name) {
 export function withProfile(url) {
   const profile = getProfile()
   if (profile === 'default') return url
-  if (!url.startsWith('/api/ui/') || /^\/api\/ui\/(csrf|login|logout|auth|profiles|profile-labels|shared)/.test(url)) return url
+  if (!url.startsWith('/api/ui/') || /^\/api\/ui\/(csrf|login|logout|auth|account|profiles|profile-labels|shared)/.test(url)) return url
   return url + (url.includes('?') ? '&' : '?') + 'profile=' + encodeURIComponent(profile)
 }
 
@@ -421,4 +421,20 @@ export async function setProfileLabel(name, label) {
     body: JSON.stringify({ label }),
   })
   if (!res.ok) throw new Error((await res.text()).trim() || 'rename failed')
+}
+
+// ---- web UI login (name + password of the Explo web interface itself) ----
+export async function fetchAccount() {
+  const res = await apiFetch('/api/ui/account')
+  if (!res.ok) return { username: '', auth_disabled: false }
+  return res.json()
+}
+
+export async function changeAccount({ current, username, password }) {
+  const res = await apiFetch('/api/ui/account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: current, username, new_password: password }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'could not change the login')
 }

@@ -46,6 +46,7 @@ func NewServer(cfg config.ServerConfig) *Server {
 		cfg.Password,
 		sessionManager,
 	)
+	authStore.LoadFile(filepath.Join(cfg.WebDataDir, "ui-auth.json"))
 	webCfg := app.Config{
 		WebEnvPath: cfg.WebEnvPath,
 		WebDataDir: cfg.WebDataDir,
