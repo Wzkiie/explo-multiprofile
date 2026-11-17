@@ -88,3 +88,38 @@ func TestMaskSubsonicSecrets(t *testing.T) {
 		t.Fatalf("harmless params must stay: %s", out)
 	}
 }
+
+func TestSubsonicPruneVersions(t *testing.T) {
+	var mu sync.Mutex
+	deleted := []string{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/getPlaylists", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","playlists":{"playlist":[
+			{"id":"1","name":"Daily-Jams-2026-11-10","owner":"anna"},
+			{"id":"2","name":"Daily-Jams-2026-11-17","owner":"anna"},
+			{"id":"3","name":"Daily-Jams-2026-11-12","owner":"anna"},
+			{"id":"4","name":"Daily-Jams-2026-11-15","owner":"anna"},
+			{"id":"5","name":"Daily-Jams-2026-11-01","owner":"bob"},
+			{"id":"6","name":"Daily-Jams","owner":"anna"},
+			{"id":"7","name":"Weekly-Jams-2026-11-01","owner":"anna"}]}}}`))
+	})
+	mux.HandleFunc("/rest/deletePlaylist", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		deleted = append(deleted, r.URL.Query().Get("id"))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	cfg := &config.ClientConfig{URL: srv.URL, PlaylistName: "Daily-Jams-2026-11-17"}
+	cfg.Creds.User = "anna"
+	c := &Subsonic{Cfg: *cfg, HttpClient: util.NewHttp(util.HttpClientConfig{Timeout: 5})}
+	if err := c.PruneVersions(3, "2"); err != nil {
+		t.Fatal(err)
+	}
+	// anna's dated copies newest first: 17(2), 15(4), 12(3), 10(1) -> only 10 (id 1) goes
+	if len(deleted) != 1 || deleted[0] != "1" {
+		t.Fatalf("deleted = %v, want [1]", deleted)
+	}
+}

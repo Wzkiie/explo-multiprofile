@@ -26,6 +26,7 @@ func (cfg *Config) GetFlags() error {
 	var searchMBID string
 	var refreshOnly bool
 	var cleanDownloads bool
+	var keepVersions int
 	// Long flags
 	flag.StringVarP(&configPath, "config", "c", ".env", "Path of the configuration file")
 	flag.StringVarP(&playlist, "playlist", "p", "weekly-exploration", "Playlist where to get tracks. Supported: weekly-exploration, weekly-jams, daily-jams, on-repeat, fresh-releases")
@@ -37,6 +38,7 @@ func (cfg *Config) GetFlags() error {
 	flag.StringVar(&searchMBID, "search-mbid", "", "Test Plex search for a single recording MBID (resolves via ListenBrainz, then searches your library)")
 	flag.BoolVar(&refreshOnly, "refresh-only", false, "Trigger alibrary rescan and exit; skips discovery and downloads")
 	flag.BoolVar(&cleanDownloads, "clean-downloads", false, "Delete previously downloaded tracks before downloading new ones (requires USE_SUBDIRECTORY)")
+	flag.IntVar(&keepVersions, "keep-versions", 0, "With --replace-playlist=false: keep only the newest N dated copies of a playlist (0 = keep all)")
 
 	flag.Parse()
 
@@ -71,6 +73,7 @@ func (cfg *Config) GetFlags() error {
 	cfg.Flags.SearchMBID = searchMBID
 	cfg.Flags.RefreshOnly = refreshOnly
 	cfg.Flags.CleanDownloads = cleanDownloads
+	cfg.Flags.KeepVersions = keepVersions
 
 	// for deprecation purposes (can be removed at a later date)
 	cfg.Flags.PersistSet = persistSet

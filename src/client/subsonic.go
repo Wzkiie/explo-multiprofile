@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"regexp"
+	"sort"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -336,6 +337,62 @@ func (c *Subsonic) DeletePlaylist() error {
 	}
 	if len(ids) > 1 {
 		slog.Info("removed duplicate playlists", "name", c.Cfg.PlaylistName, "count", len(ids))
+	}
+	return firstErr
+}
+
+var datedNameRe = regexp.MustCompile(`^(.*)-(\d{4}-\d{2}-\d{2})$`)
+
+// PruneVersions keeps only the newest `keep` dated copies ("<base>-YYYY-MM-DD") of the playlist
+// that was just created and deletes older ones. Only playlists of the configured user are touched,
+// the date in the name decides the order (not the change time), and the playlist with keepID is never removed.
+func (c *Subsonic) PruneVersions(keep int, keepID string) error {
+	if keep < 1 {
+		return nil
+	}
+	m := datedNameRe.FindStringSubmatch(c.Cfg.PlaylistName)
+	if m == nil {
+		return nil // not a dated name, nothing to prune
+	}
+	base := m[1]
+	body, err := c.subsonicRequest("getPlaylists?f=json")
+	if err != nil {
+		return fmt.Errorf("could not list playlists for pruning: %w", err)
+	}
+	var resp SubResponse
+	if err := util.ParseResp(body, &resp); err != nil {
+		return fmt.Errorf("could not read playlists for pruning: %w", err)
+	}
+	type dated struct{ id, name, date string }
+	var found []dated
+	for _, pl := range resp.SubsonicResponse.Playlists.Playlist {
+		if pl.Owner != "" && !strings.EqualFold(pl.Owner, c.Cfg.Creds.User) {
+			continue
+		}
+		pm := datedNameRe.FindStringSubmatch(pl.Name)
+		if pm == nil || pm[1] != base {
+			continue
+		}
+		found = append(found, dated{pl.ID, pl.Name, pm[2]})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].date > found[j].date })
+	var firstErr error
+	removed := 0
+	for i, d := range found {
+		if i < keep || d.id == keepID {
+			continue
+		}
+		if _, err := c.subsonicRequest(fmt.Sprintf("deletePlaylist?id=%s&f=json", url.QueryEscape(d.id))); err != nil {
+			slog.Warn("failed to prune old playlist", "name", d.name, "err", err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		removed++
+	}
+	if removed > 0 {
+		slog.Info("pruned old playlist versions", "base", base, "kept", keep, "removed", removed)
 	}
 	return firstErr
 }

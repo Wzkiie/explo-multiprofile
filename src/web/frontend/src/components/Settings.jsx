@@ -285,9 +285,12 @@ function ScheduleOverview({ schedules, customPlaylists }) {
 function PlaylistHandling() {
   const [items, setItems] = useState([])   // [{id, name, replace}]
   const [loaded, setLoaded] = useState(false)
+  const [keepN, setKeepN] = useState('0')
+  const [keepErr, setKeepErr] = useState('')
 
   useEffect(() => {
     Promise.all([fetchConfig(), fetchCustomPlaylists().catch(() => [])]).then(([{ values }, customs]) => {
+      setKeepN(String(parseInt(values.KEEP_VERSIONS, 10) || 0))
       const list = []
       for (const p of PLAYLISTS) {
         if (!values[p.scheduleKey] && !values[p.flagsKey]) continue
@@ -310,6 +313,12 @@ function PlaylistHandling() {
       saveReplacePlaylist(i.id, i.name, next).catch(() =>
         setItems(prev => prev.map(x => x.id === i.id ? { ...x, replace: !next } : x)))
     }
+  }
+
+  const changeKeep = (v) => {
+    const prev = keepN
+    setKeepN(v); setKeepErr('')
+    saveConfigKeys({ KEEP_VERSIONS: v }).catch(e => { setKeepN(prev); setKeepErr(e.message) })
   }
 
   const Option = ({ value, title, text }) => (
@@ -339,6 +348,18 @@ function PlaylistHandling() {
         <Option value="keep" title="Keep every version"
           text="Each run adds a new dated playlist next to the old ones, e.g. Weekly-Jams-2026-11-16. Applies to custom playlists too." />
       </div>
+      {mode !== 'replace' && (
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-muted">
+          <span>Keep versions:</span>
+          <select value={keepN} onChange={e => changeKeep(e.target.value)}
+            className="bg-transparent border border-ui-border rounded-[6px] text-white text-[12px] px-2 py-1">
+            <option value="0">all of them</option>
+            {[2, 3, 5, 7, 14, 30].map(n => <option key={n} value={n}>newest {n}</option>)}
+          </select>
+          <span>older dated copies are deleted automatically (Navidrome/Subsonic only).</span>
+        </div>
+      )}
+      {keepErr && <p className="text-[11px] text-red-400 mt-1">{keepErr}</p>}
       {loaded && items.length === 0 && <p className="text-[11px] text-muted mt-2">No playlist is scheduled yet — set one up on the Home tab first.</p>}
       {mode === 'mixed' && <p className="text-[11px] text-muted mt-2">Currently set differently per playlist. Pick an option to apply it to all of them.</p>}
     </div>

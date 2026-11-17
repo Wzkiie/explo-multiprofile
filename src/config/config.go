@@ -24,6 +24,7 @@ type Config struct {
 	ServerCfg    ServerConfig
 	Flags        Flags
 	ReplacePlaylist bool
+	KeepVersions int    `env:"KEEP_VERSIONS" env-default:"0"` // keep mode: newest N dated copies, 0 = all
 	System       string `env:"EXPLO_SYSTEM"`
 	Debug        bool   `env:"DEBUG" env-default:"false"`
 	LogLevel     string `env:"LOG_LEVEL" env-default:"INFO"`
@@ -41,6 +42,7 @@ type Flags struct {
 	SearchMBID     string
 	RefreshOnly    bool
 	CleanDownloads bool
+	KeepVersions   int
 }
 
 type ServerConfig struct {

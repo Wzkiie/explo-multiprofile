@@ -602,7 +602,7 @@ var editableKeys = map[string]bool{
 	"API_KEY": true, "LIBRARY_NAME": true, "PUBLIC_PLAYLIST": true,
 	"ADMIN_SYSTEM_USERNAME": true, "ADMIN_SYSTEM_PASSWORD": true, "ADMIN_API_KEY": true,
 	"DOWNLOAD_SERVICES": true, "YOUTUBE_API_KEY": true,
-	"TRACK_EXTENSION": true, "EXTENSIONS": true, "MIN_BITRATE": true,
+	"TRACK_EXTENSION": true, "EXTENSIONS": true, "MIN_BITRATE": true, "KEEP_VERSIONS": true,
 	"SLSKD_URL": true, "SLSKD_API_KEY": true,
 	"LIDARR_URL": true, "LIDARR_API_KEY": true, "LIDARR_ROOT_FOLDER": true,
 }

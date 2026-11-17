@@ -183,6 +183,12 @@ func main() {
 	var err error
 	if strings.HasPrefix(cfg.Flags.Playlist, "custom-") {
 		var playlistName string
+		// pull the current tracks from the source first (Spotify lists change daily)
+		if err := playlist.RefreshCustomPlaylist(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist, false); err != nil {
+			slog.Warn("could not refresh playlist from its source, using cached tracks", "playlist", cfg.Flags.Playlist, "err", err.Error())
+		} else {
+			slog.Info("playlist refreshed from its source", "playlist", cfg.Flags.Playlist)
+		}
 		tracks, playlistName, err = loadCustomTracks(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist)
 		if err == nil {
 			if strings.TrimSpace(playlistName) == "" {
@@ -261,6 +267,19 @@ func main() {
 		slog.Warn(err.Error())
 	} else {
 		slog.Info("playlist created successfully", "system", cfg.System, "playlistName", cfg.ClientCfg.PlaylistName, "notify", true)
+		keep := cfg.Flags.KeepVersions
+		if keep == 0 {
+			keep = cfg.KeepVersions
+		}
+		if keep > 0 && !cfg.ReplacePlaylist {
+			if pr, ok := client.API.(interface{ PruneVersions(int, string) error }); ok {
+				if err := pr.PruneVersions(keep, cfg.ClientCfg.PlaylistID); err != nil {
+					slog.Warn(err.Error())
+				}
+			} else {
+				slog.Warn("--keep-versions is only supported for Subsonic/Navidrome, old copies were kept")
+			}
+		}
 		uploadCustomPlaylistArtwork(&cfg, client)
 	}
 }

@@ -16,6 +16,14 @@ trap '[ -n "$CROND_PID" ] && kill "$CROND_PID" 2>/dev/null; exit 0' TERM INT
 
 # Update yt-dlp on startup
 pip install --disable-pip-version-check --root-user-action=ignore --no-cache-dir --upgrade  yt-dlp
+# Scheduled runs queue up behind each other (one at a time, any profile): parallel runs would hit
+# YouTube rate limits and fight over the download folder and the music server.
+if command -v flock >/dev/null 2>&1; then
+  LOCK="flock /tmp/explo-run.lock"
+else
+  LOCK=""
+fi
+
 # Clear crontabs
 crontab -r
 
@@ -73,7 +81,7 @@ fi
 
 # $CRON_SHCEDULE was deprecated in v0.11.0, keeping this block for backwards compatibility
 if [ -n "$CRON_SCHEDULE" ]; then
-    echo "$CRON_SCHEDULE cd /opt/explo && $RUNNER ./explo --config \"$_cfg\" >> /proc/1/fd/1 2>&1" >> /etc/crontabs/root
+    echo "$CRON_SCHEDULE cd /opt/explo && $LOCK $RUNNER ./explo --config \"$_cfg\" >> /proc/1/fd/1 2>&1" >> /etc/crontabs/root
     chmod 600 /etc/crontabs/root
     echo "[setup] Registered single CRON_SCHEDULE job: $CRON_SCHEDULE"
 fi
@@ -91,7 +99,7 @@ for var in $(env | grep "_SCHEDULE=" | cut -d= -f1); do
   fi
 
   # Default: just run explo if flags are empty
-  cmd="cd /opt/explo && $RUNNER ./explo --config \"$_cfg\" $flags >> /proc/1/fd/1 2>&1"
+  cmd="cd /opt/explo && $LOCK $RUNNER ./explo --config \"$_cfg\" $flags >> /proc/1/fd/1 2>&1"
 
   echo "$schedule $cmd" >> /etc/crontabs/root
   echo "[setup] Registered job: $job"
@@ -127,7 +135,7 @@ if [ -d "$_profiles_dir" ]; then
         echo "[setup] Skipping $_pname/$_job: schedule is empty"
         continue
       fi
-      echo "$_sched cd /opt/explo && EXPLO_ISOLATED=1 WEB_DATA_PATH=\"$_pdir/\" $RUNNER ./explo --config \"$_penv\" $_flags >> /proc/1/fd/1 2>&1" >> /etc/crontabs/root
+      echo "$_sched cd /opt/explo && EXPLO_ISOLATED=1 WEB_DATA_PATH=\"$_pdir/\" $LOCK $RUNNER ./explo --config \"$_penv\" $_flags >> /proc/1/fd/1 2>&1" >> /etc/crontabs/root
       echo "[setup] Registered job: $_pname/$_job"
       echo "        Schedule: $_sched"
     done

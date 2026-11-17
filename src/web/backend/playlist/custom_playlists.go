@@ -208,3 +208,28 @@ func customPlaylistTrackCount(cfgDir, id string) int {
 	}
 	return len(m.Tracks)
 }
+
+// RefreshCustomPlaylist re-reads a custom playlist from its source (Spotify, Apple Music,
+// ListenBrainz) and rewrites the track cache, so a run always works with the current tracks.
+// It is called right before a run; on failure the existing cache is kept.
+func RefreshCustomPlaylist(cfgDir, id string, suffixRemoval bool) error {
+	cp := GetCustomPlaylist(cfgDir, id)
+	if cp == nil || (cp.SourceURL == "" && cp.LBMBID == "") {
+		return nil // manual playlist without a source: nothing to refresh
+	}
+	result, err := fetchCustomPlaylistTracks(*cp, suffixRemoval)
+	if err != nil {
+		return err
+	}
+	if len(result.Tracks) == 0 {
+		return fmt.Errorf("source returned no tracks, keeping the cached list")
+	}
+	writePrefetchCache(cfgDir, id, result.Tracks)
+	all := loadCustomPlaylists(cfgDir)
+	for i := range all {
+		if all[i].ID == id {
+			all[i].LastFetched = time.Now().UTC()
+		}
+	}
+	return saveCustomPlaylists(cfgDir, all)
+}

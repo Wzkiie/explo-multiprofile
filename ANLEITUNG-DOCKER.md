@@ -137,6 +137,7 @@ Bekannte Einschränkungen:
 - Ist das Download-Verzeichnis nicht beschreibbar, bricht der Lauf jetzt mit einer klaren Fehlermeldung ab. Eine bestehende Playlist wird
   erst unmittelbar vor dem Anlegen der neuen gelöscht, ein fehlgeschlagener Lauf lässt sie also stehen.
 - Die Reihenfolge der Download-Quellen ist nicht einstellbar.
+- Parallele Cron-Läufe werden per `flock` hintereinander gestellt (Warteschlange). Ob `flock` im Alpine-Image vorhanden ist, ist ungetestet; fehlt es, laufen sie parallel wie vorher.
 - Das Symptom „es kommen nur 32 von 50 Songs" bedeutet meist: Download-Ordner prüfen (siehe oben).
 
 ## 8. Fehlersuche
@@ -161,3 +162,22 @@ Häufige Ursachen:
 Bitte pro Punkt der Checkliste (Abschnitt 6): **OK / nicht OK**, bei „nicht OK" die relevanten Logzeilen
 (ohne Passwörter, Tokens oder Cookies) und was erwartet wurde. Besonders wichtig sind Punkt 2, 7 und 8.
 Das Wegwerf-Konto und die Test-Playlists danach wieder löschen.
+
+## 10. Migration eines bestehenden Setups (z. B. zwei Container jacob/lisa)
+
+1. **Backup** beider Config-Ordner kopieren.
+2. Stack in Portainer: nur `image:` auf `ghcr.io/wzkiie/explo-multiprofile:latest` ändern, `restart: unless-stopped` setzen,
+   Volumes und Env des ersten Containers unverändert lassen. Der alte Container wird zum Profil `default`.
+3. Zweiten Nutzer anlegen: in der UI Profil anlegen (z. B. `lisa`), dann auf dem Host ihre Dateien nach
+   `<config>/profiles/lisa/` kopieren: `.env.expanded` wird zu `.env`, dazu `custom-playlists.json` und `cache/`.
+   Danach im Profil in Settings prüfen (Server, Nutzer, Admin) und speichern. Passwörter nur per Datei kopieren, nie in Chats.
+4. Zeitpläne in der UI setzen (gestaffelt, z. B. 03:00, 03:10 …). Die Hermes-Cron-Jobs und Lockfile-Scripte danach abschalten,
+   sonst laufen beide (Doppel-Trigger). Steht ein `*_SCHEDULE` in der Compose-Datei, hat er Vorrang vor der UI: entfernen.
+5. Spotify-/Apple-/ListenBrainz-Playlists mit hinterlegter Quell-URL holen sich die aktuellen Tracks bei **jedem Lauf selbst**
+   (der separate `spotify-refresh.py` ist dafür nicht mehr nötig). Einträge ohne `source_url` in `custom-playlists.json` nutzen den Cache wie bisher.
+6. Cover: pro Playlist einmal in der UI hochladen (⋮ → Set cover). Sie werden bei jedem Lauf neu gesetzt. `navidrome-set-covers.sh` entfällt.
+7. Dubletten: „Replace the old playlist" löscht alle gleichnamigen eigenen Playlists. Für datierte Kopien (z. B. Daily-Jams) unter
+   Settings → Playlists „Keep every version" wählen und **Keep versions: newest 3** einstellen (Variable `KEEP_VERSIONS`, nur Navidrome/Subsonic).
+   Damit entfällt auch das Cleanup-Script.
+
+Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.

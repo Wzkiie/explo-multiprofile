@@ -99,6 +99,11 @@ func uploadPlaylistArtwork(hc *util.HttpClient, endpoint, localPath string, head
 
 // ArtworkUploader is an optional capability for clients that support setting
 // playlist artwork. Use a type assertion: if u, ok := c.API.(client.ArtworkUploader); ok {...}.
+// VersionPruner is an optional capability: delete old dated copies of a playlist.
+type VersionPruner interface {
+	PruneVersions(keep int, keepID string) error
+}
+
 type ArtworkUploader interface {
 	SetPlaylistArtwork(localPath string) error
 }
