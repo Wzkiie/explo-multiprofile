@@ -218,6 +218,7 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.seedFromDefault(p)
 	s.registerProfileJobs(p)
 	slog.Info("profile created", "profile", p.cfg.Profile)
 	s.handleListProfiles(w, r)

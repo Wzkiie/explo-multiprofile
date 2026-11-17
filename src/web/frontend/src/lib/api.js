@@ -15,7 +15,7 @@ export function setProfile(name) {
 export function withProfile(url) {
   const profile = getProfile()
   if (profile === 'default') return url
-  if (!url.startsWith('/api/ui/') || /^\/api\/ui\/(csrf|login|logout|auth|profiles)/.test(url)) return url
+  if (!url.startsWith('/api/ui/') || /^\/api\/ui\/(csrf|login|logout|auth|profiles|profile-labels|shared)/.test(url)) return url
   return url + (url.includes('?') ? '&' : '?') + 'profile=' + encodeURIComponent(profile)
 }
 
@@ -389,4 +389,36 @@ export async function restartNeeded() {
 export async function restartNow() {
   const res = await apiFetch('/api/ui/restart', { method: 'POST' })
   if (!res.ok) throw new Error((await res.text()).trim() || 'restart failed')
+}
+
+// ---- shared admin account and profile display names ----
+export async function fetchShared() {
+  const res = await apiFetch('/api/ui/shared')
+  if (!res.ok) return {}
+  return (await res.json()).values || {}
+}
+
+export async function saveShared(values) {
+  const res = await apiFetch('/api/ui/shared', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'save failed')
+}
+
+export async function fetchProfileLabels() {
+  try {
+    const res = await apiFetch('/api/ui/profile-labels')
+    return res.ok ? await res.json() : {}
+  } catch { return {} }
+}
+
+export async function setProfileLabel(name, label) {
+  const res = await apiFetch(`/api/ui/profiles/${encodeURIComponent(name)}/label`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || 'rename failed')
 }

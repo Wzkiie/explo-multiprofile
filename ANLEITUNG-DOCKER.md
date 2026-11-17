@@ -180,4 +180,10 @@ Das Wegwerf-Konto und die Test-Playlists danach wieder löschen.
    Settings → Playlists „Keep every version" wählen und **Keep versions: newest 3** einstellen (Variable `KEEP_VERSIONS`, nur Navidrome/Subsonic).
    Damit entfällt auch das Cleanup-Script.
 
+**Gemeinsamer Admin und Namen:**
+- Settings → Music server → „Is this user an admin?" → No → Haken „Use this admin account for all profiles". Der Admin steht dann einmal in `shared.env`
+  (Rechte 0600, im Config-Ordner) und gilt für jedes Profil ohne eigenen Admin. Neue Profile müssen ihn nicht mehr eintragen.
+- Das Profil `default` kann in der Kopfzeile über „Rename" einen Anzeigenamen bekommen (z. B. „Jacob"). Der Ordner bleibt `default`.
+- Ein neues Profil übernimmt Server-Typ, Adresse, Bibliotheksname und Download-Ordner vom ersten Profil. Nutzername und Passwort trägt man selbst ein.
+
 Nicht Teil des Containers (bleibt wie bisher): Track-Dedup in der Navidrome-Datenbank und Artist-Tag-Korrekturen.

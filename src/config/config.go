@@ -248,6 +248,7 @@ func (cfg *Config) ReadEnv() {
 		}
 	}
 
+	cfg.applySharedAdmin()
 	cfg.CommonFixes()
 }
 

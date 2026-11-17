@@ -8,8 +8,8 @@
  * Receives existing config/envSources from App to pre-populate fields.
  */
 
-import { useState } from 'react'
-import { wizardStep1, wizardStep2, wizardStep3, prefetchPlaylists } from '../lib/api'
+import { useState, useEffect } from 'react'
+import { wizardStep1, wizardStep2, wizardStep3, prefetchPlaylists, fetchShared } from '../lib/api'
 import { ToggleRow } from './ui/Toggle'
 import { DirInput } from './ui/DirInput'
 import { TextField } from './ui/common'
@@ -151,6 +151,10 @@ const API_KEY_SYSTEMS = ["emby", "plex"];
 const ADMIN_SYSTEMS = ["plex", "subsonic"];
 
 function Step2({ fields, setField, envSources, onBack, onNext, saving }) {
+  const [sharedAdmin, setSharedAdmin] = useState('')
+  useEffect(() => {
+    fetchShared().then(v => setSharedAdmin(v.ADMIN_SYSTEM_USERNAME || v.ADMIN_API_KEY ? (v.ADMIN_SYSTEM_USERNAME || 'API key') : '')).catch(() => {})
+  }, [])
   const {
     system,
     systemUrl,
@@ -346,6 +350,11 @@ function Step2({ fields, setField, envSources, onBack, onNext, saving }) {
                     Optional. Used for administrative actions such as creating
                     playlists for other users.
                   </div>
+                  {sharedAdmin && !adminCredentials && (
+                    <div className="text-[12px] text-accent mt-1">
+                      A shared admin account (“{sharedAdmin}”) is already set up for all profiles and is used automatically. Only tick this to use a different one.
+                    </div>
+                  )}
                 </div>
               </label>
   

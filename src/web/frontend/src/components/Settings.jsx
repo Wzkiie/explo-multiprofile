@@ -15,7 +15,7 @@ import {
   fetchConfig, fetchConfigRaw, saveConfig, resetConfig,
   saveSchedule, startRun, stopRun, fetchRunStatus, fetchLogs,
   fetchCustomPlaylists, deleteCustomPlaylist, savePathTemplate, saveEnrichMetadata,
-  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys,
+  saveReplacePlaylist, saveCleanDownloads, saveSuffixRemoval, saveConfigKeys, fetchShared, saveShared, fetchProfileLabels, setProfileLabel,
   cookiesPresent, uploadCookies, deleteCookies,
   renameProfile, deleteProfile, restartNeeded, restartNow,
   fetchPathTemplatePresets, addPathTemplatePreset, deletePathTemplatePreset,
@@ -1091,11 +1091,18 @@ function SettingsForm() {
   const [dirty, setDirty] = useState(false)
   const [showSecret, setShowSecret] = useState({})
   const [isAdmin, setIsAdmin] = useState(null) // null = not loaded yet; true/false = answer to "is this user a server admin?"
+  const [shared, setShared] = useState({})      // admin account stored once for all profiles
+  const [useShared, setUseShared] = useState(false)
+  const [shareNow, setShareNow] = useState(false) // save the admin typed below as the shared one
 
   useEffect(() => {
-    fetchConfig().then(({ values }) => {
+    Promise.all([fetchConfig(), fetchShared().catch(() => ({}))]).then(([{ values }, sh]) => {
       setVals(values)
-      setIsAdmin(!(values.ADMIN_SYSTEM_USERNAME || values.ADMIN_SYSTEM_PASSWORD || values.ADMIN_API_KEY))
+      setShared(sh)
+      const own = !!(values.ADMIN_SYSTEM_USERNAME || values.ADMIN_SYSTEM_PASSWORD || values.ADMIN_API_KEY)
+      const hasShared = !!(sh.ADMIN_SYSTEM_USERNAME || sh.ADMIN_SYSTEM_PASSWORD || sh.ADMIN_API_KEY)
+      setIsAdmin(own || hasShared ? false : true)
+      setUseShared(!own && hasShared)
     }).catch(() => setVals({}))
   }, [])
   if (!vals) return null
@@ -1108,8 +1115,9 @@ function SettingsForm() {
     set('DOWNLOAD_SERVICES', (next.length ? next : ['youtube']).join(','))
   }
 
+  const hasShared = !!(shared.ADMIN_SYSTEM_USERNAME || shared.ADMIN_SYSTEM_PASSWORD || shared.ADMIN_API_KEY)
   const adminMissing = (() => {
-    if (!system?.admin || isAdmin !== false) return []
+    if (!system?.admin || isAdmin !== false || (useShared && hasShared)) return []
     // Plex accepts either user+password or an API key; all other systems need every admin field
     if (system.value === 'plex') {
       return (vals.ADMIN_API_KEY || (vals.ADMIN_SYSTEM_USERNAME && vals.ADMIN_SYSTEM_PASSWORD)) ? [] : ['ADMIN_SYSTEM_USERNAME', 'ADMIN_SYSTEM_PASSWORD']
@@ -1123,8 +1131,17 @@ function SettingsForm() {
       ...MUSIC_SYSTEMS.flatMap(m => [...m.fields, ...(m.admin || [])]), ...DOWNLOAD_SOURCES.flatMap(d => d.fields)])
     const out = {}
     for (const k of keys) out[k] = vals[k] ?? ''
-    if (system?.admin && isAdmin) for (const k of system.admin) out[k] = '' // admin user: no extra admin account needed
+    const adminKeys = ['ADMIN_SYSTEM_USERNAME', 'ADMIN_SYSTEM_PASSWORD', 'ADMIN_API_KEY']
+    const makeShared = system?.admin && isAdmin === false && !useShared && shareNow
+    if (system?.admin && (isAdmin || (useShared && hasShared))) for (const k of system.admin) out[k] = '' // admin user or shared admin: no own admin account
     try {
+      if (makeShared) {
+        const sh = {}
+        for (const k of adminKeys) sh[k] = vals[k] || ''
+        await saveShared(sh)
+        setShared(sh); setUseShared(true); setShareNow(false)
+        for (const k of adminKeys) out[k] = '' // the profile uses the shared one from now on
+      }
       await saveConfigKeys(out)
       setDirty(false); setStatus('Saved ✓')
       setTimeout(() => setStatus(''), 2500)
@@ -1191,13 +1208,28 @@ function SettingsForm() {
                     </button>
                   ))}
                 </div>
-                {isAdmin === false && (
+                {isAdmin === false && hasShared && useShared && (
+                  <div className="mt-3 text-[12px] text-muted">
+                    Using the shared admin account{shared.ADMIN_SYSTEM_USERNAME ? <> “<span className="text-white">{shared.ADMIN_SYSTEM_USERNAME}</span>”</> : ''} that is set up for all profiles.{' '}
+                    <button type="button" onClick={() => { setUseShared(false); setDirty(true) }}
+                      className="text-accent bg-transparent border-none cursor-pointer text-[12px] p-0">Use a different admin for this user</button>
+                  </div>
+                )}
+                {isAdmin === false && !(hasShared && useShared) && (
                   <div className="mt-3">
                     <p className="text-[11px] text-muted mb-2">
                       Enter an admin account of your server. The playlists are still created for the user above; the admin is only used for the scan.
                     </p>
                     <div className="flex gap-3 flex-wrap">{system.admin.map(k => field(k, true))}</div>
                     {system.value === 'plex' && <p className="text-[11px] text-muted mt-1.5">Plex: admin username + password, or an admin API key.</p>}
+                    <label className="flex items-center gap-2 mt-3 text-[12px] text-white cursor-pointer">
+                      <input type="checkbox" checked={shareNow} onChange={e => { setShareNow(e.target.checked); setDirty(true) }} />
+                      Use this admin account for all profiles (enter it only once)
+                    </label>
+                    {hasShared && (
+                      <button type="button" onClick={() => { setUseShared(true); setDirty(true) }}
+                        className="mt-2 text-accent bg-transparent border-none cursor-pointer text-[12px] p-0">Use the shared admin instead</button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1465,9 +1497,12 @@ function ProfileSwitcher() {
   const [newName, setNewName] = useState('')
   const [err, setErr] = useState('')
   const [mode, setMode] = useState(null) // null | 'rename' | 'delete'
+  const [labels, setLabels] = useState({})
   const current = getProfile()
+  const labelOf = (n) => labels[n] || n
 
   useEffect(() => {
+    fetchProfileLabels().then(setLabels)
     fetchProfiles().then(list => {
       setProfiles(list)
       // the selected profile was deleted/renamed elsewhere: fall back to the default one
@@ -1492,6 +1527,11 @@ function ProfileSwitcher() {
   }
 
   const doRename = async () => {
+    if (current === 'default') {
+      // the default profile keeps its folder, only the display name changes
+      try { await setProfileLabel('default', newName.trim()); window.location.reload() } catch (e) { setErr(e.message) }
+      return
+    }
     const name = newName.trim().toLowerCase()
     if (!name || name === current) { setMode(null); return }
     try { await renameProfile(current, name); switchTo(name) } catch (e) { setErr(e.message) }
@@ -1520,7 +1560,7 @@ function ProfileSwitcher() {
   if (mode === 'delete') {
     return (
       <div className="pb-2 flex items-center gap-2 flex-wrap max-w-[420px] justify-end">
-        <span className="text-[12px] text-muted">Delete profile “{current}”? Its folder is moved to profiles/.trash, nothing is erased.</span>
+        <span className="text-[12px] text-muted">Delete profile “{labelOf(current)}”? Its folder is moved to profiles/.trash, nothing is erased.</span>
         <button onClick={doDelete} className="text-[12px] text-danger bg-transparent border-none cursor-pointer">Delete</button>
         <button onClick={() => { setMode(null); setErr('') }} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">Cancel</button>
         {err && <span className="text-[11px] text-danger">{err}</span>}
@@ -1555,14 +1595,14 @@ function ProfileSwitcher() {
         className="text-[12px] text-muted bg-transparent border border-ui-border rounded px-1 py-0.5 cursor-pointer"
       >
         {profiles.map((n) => (
-          <option key={n} value={n} className="bg-black">{n}</option>
+          <option key={n} value={n} className="bg-black">{labelOf(n)}</option>
         ))}
         <option value="__add__" className="bg-black">+ add profile…</option>
       </select>
+      <button onClick={() => { setNewName(current === 'default' ? (labels.default || '') : current); setErr(''); setMode('rename') }} title="Rename this profile"
+        className="text-[12px] text-muted hover:text-white bg-transparent border-none cursor-pointer">Rename</button>
       {current !== 'default' && (
         <>
-          <button onClick={() => { setNewName(current); setErr(''); setMode('rename') }} title="Rename this profile"
-            className="text-[12px] text-muted hover:text-white bg-transparent border-none cursor-pointer">Rename</button>
           <button onClick={() => { setErr(''); setMode('delete') }} title="Delete this profile"
             className="text-[12px] text-muted hover:text-danger bg-transparent border-none cursor-pointer">Delete</button>
         </>
