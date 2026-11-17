@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"strconv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -628,6 +629,12 @@ func (s *Settings) HandleSaveKeys(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "line breaks are not allowed in "+k, http.StatusBadRequest)
 			return
 		}
+		if numericKeys[k] && v != "" {
+			if n, err := strconv.Atoi(v); err != nil || n < 0 {
+				http.Error(w, k+" must be a whole number", http.StatusBadRequest)
+				return
+			}
+		}
 		updates[k] = v
 	}
 	if err := s.UpdateEnvKeys(updates, web.SampleEnv); err != nil {
@@ -636,3 +643,6 @@ func (s *Settings) HandleSaveKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
+// numericKeys must hold a non-negative whole number (or be empty to reset to the default).
+var numericKeys = map[string]bool{"MIN_BITRATE": true, "KEEP_VERSIONS": true}

@@ -375,7 +375,12 @@ func (c *Subsonic) PruneVersions(keep int, keepID string) error {
 		}
 		found = append(found, dated{pl.ID, pl.Name, pm[2]})
 	}
-	sort.Slice(found, func(i, j int) bool { return found[i].date > found[j].date })
+	sort.SliceStable(found, func(i, j int) bool {
+		if found[i].date != found[j].date {
+			return found[i].date > found[j].date
+		}
+		return found[i].id == keepID && found[j].id != keepID // the new one wins a same-day tie
+	})
 	var firstErr error
 	removed := 0
 	for i, d := range found {

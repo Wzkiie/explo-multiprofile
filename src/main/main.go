@@ -184,9 +184,9 @@ func main() {
 	if strings.HasPrefix(cfg.Flags.Playlist, "custom-") {
 		var playlistName string
 		// pull the current tracks from the source first (Spotify lists change daily)
-		if err := playlist.RefreshCustomPlaylist(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist, false); err != nil {
+		if refreshed, err := playlist.RefreshCustomPlaylist(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist, false); err != nil {
 			slog.Warn("could not refresh playlist from its source, using cached tracks", "playlist", cfg.Flags.Playlist, "err", err.Error())
-		} else {
+		} else if refreshed {
 			slog.Info("playlist refreshed from its source", "playlist", cfg.Flags.Playlist)
 		}
 		tracks, playlistName, err = loadCustomTracks(cfg.ServerCfg.WebDataDir, cfg.Flags.Playlist)
