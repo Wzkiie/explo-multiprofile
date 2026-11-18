@@ -214,7 +214,7 @@ func downloadAndCacheCovers(cfgDir, playlistType string, tracks []PlaylistTrack)
 	ct := make([]cachedPrefetchTrack, len(tracks))
 	for i, t := range tracks {
 		APIPath, coverPath := util.DownloadCover(t.CoverURL, coversDir)
-		ct[i] = cachedPrefetchTrack{Rank: i + 1, Title: t.Title, Artist: t.Artist, MainArtist: t.MainArtist, Release: t.Album, CoverURL: APIPath, CoverPath: coverPath, MusicBrainzTrackID: t.MusicBrainzTrackID}
+		ct[i] = cachedPrefetchTrack{Rank: i + 1, Title: t.Title, Artist: t.Artist, MainArtist: t.MainArtist, Release: t.Album, CoverURL: APIPath, CoverPath: coverPath, MusicBrainzTrackID: t.MusicBrainzTrackID, DurationMs: t.DurationMs}
 	}
 	if writeTrackCache(cfgDir, playlistType, ct) {
 		slog.Info("prefetch: cache updated", "playlist", playlistType, "covers", "local")

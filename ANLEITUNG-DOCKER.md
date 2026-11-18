@@ -205,6 +205,7 @@ YouTube-Download die Datei mit ffprobe. Unter 60 % oder über 200 % der Länge w
 Die Längen speichert Explo im Playlist-Cache (`durationMs`); bei Spotify-Playlists kommen sie beim nächsten Refresh/Lauf, ältere Caches bleiben lesbar.
 **Schon vorhandene kurze Dateien finden:** `docker exec <container> ./explo --check-short` listet sie auf; `--check-short --move-short` verschiebt sie nach `<Playlistordner>/.explo-rejected/`
 (nichts wird gelöscht), der nächste Lauf lädt sie neu. Für ein weiteres Profil: `docker exec <container> sh -c 'cd /opt/explo && EXPLO_ISOLATED=1 WEB_DATA_PATH=/opt/explo/config/profiles/<name>/ ./explo --config /opt/explo/config/profiles/<name>/.env --check-short'`.
+**Alte Dateien:** `--check-short` findet nur Dateien am erwarteten Ort (`<Download>/<Playlistname>/<Titel-Artist>.mp3`). Dateien aus der Zeit des Original-Explo, in Alt-Ordnern (z. B. `Weekly-Exploration-2026-06-15`) oder in Artist/Album-Bäumen der Bibliothek, erfasst es nicht; die müssen von Hand aufgeräumt werden (Kriterium: unter 60 % oder über 200 % der echten Länge). Nach einem Update einmal alle Playlists laufen lassen (oder Spotify-Playlists refreshen), damit die Längen in den Caches stehen.
 Nicht getestet im echten Container: der Suchtreffer-Vorfilter über `duration_seconds` von YouTube Music.
 
 **Playlists umbenennen und Modus sehen:** ⋮ → „Rename…" auf jeder Karte (eigene und eingebaute wie Daily Jams). Mit umbenannt wird alles, was am Namen hängt: der Eintrag in
